@@ -2,11 +2,16 @@ spring:
   application:
     name: FootVerse
 
+  profiles:
+    active: local
+
+
+
   datasource:
-    url: ${FOOTVERSE_DB_URL:jdbc:mysql://localhost:3306/footverse?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true}
-    username: ${FOOTVERSE_DB_USERNAME:root}
-    password: ${FOOTVERSE_DB_PASSWORD:root}
-    driver-class-name: com.mysql.cj.jdbc.Driver
+      url: ${FOOTVERSE_DB_URL}
+      username: ${FOOTVERSE_DB_USERNAME}
+      password: ${FOOTVERSE_DB_PASSWORD}
+      driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
     hibernate:
@@ -27,7 +32,7 @@ spring:
 # local development only and must be overridden outside development).
 footverse:
   jwt:
-    secret: ${FOOTVERSE_JWT_SECRET:local-development-secret-change-me-please-32-bytes-minimum}
+    secret: ${FOOTVERSE_JWT_SECRET}
     # Access-token time-to-live in seconds (15 minutes). Surfaced as AuthResponse.expiresIn.
     access-token-ttl-seconds: 900
     # Refresh-token time-to-live in seconds (30 days).
