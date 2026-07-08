@@ -2,6 +2,9 @@ package com.footverse.support;
 
 import java.time.LocalDateTime;
 
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
 import com.footverse.auth.dto.LoginRequest;
 import com.footverse.auth.dto.RefreshTokenRequest;
 import com.footverse.auth.dto.RegisterRequest;
@@ -96,6 +99,35 @@ public final class AuthFixtures {
         user.setRole(Role.CUSTOMER);
         user.setEnabled(true);
         return user;
+    }
+
+    /**
+     * Builds an enabled ADMIN entity for the given identity.
+     *
+     * @param email the email
+     * @param phone the phone
+     * @return an enabled {@link User} with the ADMIN role
+     */
+    public static User admin(String email, String phone) {
+        User user = customer(email, phone);
+        user.setRole(Role.ADMIN);
+        return user;
+    }
+
+    /**
+     * Builds Spring Security {@link UserDetails} carrying the given role's authority, for tests
+     * that drive the {@code UserDetailsService} used by the JWT filter.
+     *
+     * @param email the account email (the principal username)
+     * @param role  the account role
+     * @return the mapped {@link UserDetails}
+     */
+    public static UserDetails userDetails(String email, Role role) {
+        return org.springframework.security.core.userdetails.User.builder()
+                .username(email)
+                .password("$2a$10$encoded")
+                .authorities(new SimpleGrantedAuthority("ROLE_" + role.name()))
+                .build();
     }
 
     /**

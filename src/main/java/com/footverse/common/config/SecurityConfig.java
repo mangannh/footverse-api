@@ -6,6 +6,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -19,12 +20,13 @@ import com.footverse.common.security.RestAuthenticationEntryPoint;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Stateless Spring Security skeleton defining the frozen public/protected endpoint split
+ * Stateless Spring Security configuration defining the frozen endpoint authorization matrix
  * (security-spec §6), the BCrypt password encoder, and the enveloped 401/403 handlers.
  *
- * <p>The {@link JwtFilter} authenticates Bearer access tokens. User loading via a
- * {@code UserDetailsService} (with authorities) and authorization rules are added by later
- * tasks; until then an authenticated token carries no authorities.</p>
+ * <p>The {@link JwtFilter} authenticates Bearer access tokens and populates the caller's role
+ * authority. Public catalog reads stay open; the admin catalog writes require {@code ROLE_ADMIN};
+ * every other endpoint requires authentication. A denied authorization is rendered as the
+ * enveloped {@code 403} by the {@link RestAccessDeniedHandler}.</p>
  */
 @Configuration
 @RequiredArgsConstructor
@@ -35,6 +37,7 @@ public class SecurityConfig {
     private final RestAuthenticationEntryPoint authenticationEntryPoint;
     private final RestAccessDeniedHandler accessDeniedHandler;
     private final JwtUtil jwtUtil;
+    private final UserDetailsService userDetailsService;
 
     /**
      * Builds the stateless security filter chain: CSRF disabled, no HTTP session, the public
@@ -56,12 +59,27 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/brands/**").permitAll()
+                        // Admin catalog writes (security-spec §6). Method-specific, so they never
+                        // overlap the public GET rules above; the broad product PUT/DELETE patterns
+                        // also cover the variant/image sub-paths, whose only extra writes are the
+                        // two nested POSTs declared explicitly below.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/categories").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/categories/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/categories/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/brands").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/brands/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/brands/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/products").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/products/*/variants").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/products/*/images").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/products/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/products/**").hasRole("ADMIN")
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
-                .addFilterBefore(new JwtFilter(jwtUtil, authenticationEntryPoint),
+                .addFilterBefore(new JwtFilter(jwtUtil, authenticationEntryPoint, userDetailsService),
                         UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

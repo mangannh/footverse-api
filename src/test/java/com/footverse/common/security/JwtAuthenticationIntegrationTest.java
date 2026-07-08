@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,33 +12,50 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.footverse.support.AuthFixtures;
+import com.footverse.user.repository.UserRepository;
 
 /**
  * End-to-end tests exercising {@link JwtFilter} through the real security filter chain: valid
  * tokens reach protected endpoints, invalid tokens yield the enveloped 401, and public
  * endpoints and Swagger remain reachable.
+ *
+ * <p>Runs in a rolled-back transaction so the fixture user leaves no persisted state.</p>
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Transactional
 class JwtAuthenticationIntegrationTest {
 
     private static final String SUBJECT = "user@example.com";
+    private static final String PHONE = "0900000030";
     private static final String OTHER_SECRET = "a-completely-different-secret-key-32-bytes";
 
     private final MockMvc mockMvc;
     private final JwtUtil jwtUtil;
+    private final UserRepository userRepository;
     private final String configuredSecret;
 
     JwtAuthenticationIntegrationTest(@Autowired MockMvc mockMvc, @Autowired JwtUtil jwtUtil,
+                                     @Autowired UserRepository userRepository,
                                      @Value("${footverse.jwt.secret}") String configuredSecret) {
         this.mockMvc = mockMvc;
         this.jwtUtil = jwtUtil;
+        this.userRepository = userRepository;
         this.configuredSecret = configuredSecret;
     }
 
+    @BeforeEach
+    void persistTokenSubject() {
+        userRepository.save(AuthFixtures.customer(SUBJECT, PHONE));
+    }
+
     /**
-     * A valid token authenticates the request; with no controller yet it resolves to the
-     * routing-404 envelope (proving it passed authentication rather than being rejected 401).
+     * A valid token whose user exists authenticates the request; with no controller yet it
+     * resolves to the routing-404 envelope (proving it passed authentication rather than being
+     * rejected 401).
      */
     @Test
     void validTokenReachesProtectedEndpoint() throws Exception {

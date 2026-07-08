@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -16,6 +17,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -33,6 +35,7 @@ import com.footverse.common.security.RestAccessDeniedHandler;
 import com.footverse.common.security.RestAuthenticationEntryPoint;
 import com.footverse.support.AuthFixtures;
 import com.footverse.user.dto.UserResponse;
+import com.footverse.user.entity.Role;
 
 /**
  * Web-slice tests for {@link AuthController} (register, login, refresh, logout). The security
@@ -50,11 +53,20 @@ class AuthControllerTest {
     @MockitoBean
     private AuthService authService;
 
+    @MockitoBean
+    private UserDetailsService userDetailsService;
+
     AuthControllerTest(@Autowired MockMvc mockMvc, @Autowired ObjectMapper objectMapper,
                        @Autowired JwtUtil jwtUtil) {
         this.mockMvc = mockMvc;
         this.objectMapper = objectMapper;
         this.jwtUtil = jwtUtil;
+    }
+
+    @BeforeEach
+    void stubUserLookup() {
+        when(userDetailsService.loadUserByUsername(AuthFixtures.EMAIL))
+                .thenReturn(AuthFixtures.userDetails(AuthFixtures.EMAIL, Role.CUSTOMER));
     }
 
     private String bearerToken() {

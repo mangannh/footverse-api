@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -20,6 +21,7 @@ import com.footverse.common.security.JwtUtil;
 import com.footverse.common.security.RestAccessDeniedHandler;
 import com.footverse.common.security.RestAuthenticationEntryPoint;
 import com.footverse.support.AuthFixtures;
+import com.footverse.user.entity.Role;
 import com.footverse.user.service.UserService;
 
 /**
@@ -36,6 +38,9 @@ class UserControllerTest {
     @MockitoBean
     private UserService userService;
 
+    @MockitoBean
+    private UserDetailsService userDetailsService;
+
     UserControllerTest(@Autowired MockMvc mockMvc, @Autowired JwtUtil jwtUtil) {
         this.mockMvc = mockMvc;
         this.jwtUtil = jwtUtil;
@@ -50,6 +55,8 @@ class UserControllerTest {
      */
     @Test
     void currentUserAuthenticatedReturns200() throws Exception {
+        when(userDetailsService.loadUserByUsername(AuthFixtures.EMAIL))
+                .thenReturn(AuthFixtures.userDetails(AuthFixtures.EMAIL, Role.CUSTOMER));
         when(userService.getCurrentUser()).thenReturn(AuthFixtures.userResponse(1L, AuthFixtures.EMAIL));
 
         mockMvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, bearerToken()))
