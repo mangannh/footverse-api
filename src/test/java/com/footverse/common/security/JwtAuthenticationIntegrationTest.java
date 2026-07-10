@@ -53,16 +53,17 @@ class JwtAuthenticationIntegrationTest {
     }
 
     /**
-     * A valid token whose user exists authenticates the request; with no controller yet it
-     * resolves to the routing-404 envelope (proving it passed authentication rather than being
-     * rejected 401).
+     * A valid token whose user exists authenticates the request: it reaches the cart controller and
+     * returns the caller's own (still empty) cart, proving it passed authentication rather than
+     * being rejected 401.
      */
     @Test
     void validTokenReachesProtectedEndpoint() throws Exception {
         mockMvc.perform(get("/api/v1/cart")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtUtil.createAccessToken(SUBJECT)))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.errorCode").value("RESOURCE_NOT_FOUND"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items").isEmpty());
     }
 
     /**

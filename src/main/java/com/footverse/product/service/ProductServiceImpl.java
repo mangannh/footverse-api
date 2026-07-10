@@ -2,6 +2,7 @@ package com.footverse.product.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,8 +40,9 @@ import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Default {@link ProductService} implementation: catalog search / product-detail assembly (read)
- * and admin product & image management (write). It composes the multi-source aggregate responses
+ * Default {@link ProductService} implementation: catalog search / summary-by-ids /
+ * product-detail assembly (read) and admin product & image management (write). It composes the
+ * multi-source aggregate responses
  * directly (per the frozen R1 decision there is no {@code ProductMapper}), reusing
  * {@link ProductImageMapper} for image pieces and delegating all variant data — including the
  * purchasability rule — to {@link ProductVariantService}, so no business rule is duplicated and
@@ -90,6 +92,24 @@ public class ProductServiceImpl implements ProductService {
                 ? Map.of()
                 : productVariantService.getPurchasableStateByProductIds(productIds);
         return PageResponse.from(page.map(product -> toSummary(product, primaryImageUrls, availability)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, ProductSummaryResponse> getSummariesByIds(Collection<Long> productIds) {
+        if (productIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Product> products = productRepository.findByIdInAndDeletedAtIsNull(productIds);
+        if (products.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> resolvedIds = products.stream().map(Product::getId).toList();
+        Map<Long, String> primaryImageUrls = primaryImageUrlsByProductIds(resolvedIds);
+        Map<Long, Boolean> availability = productVariantService.getPurchasableStateByProductIds(resolvedIds);
+        return products.stream()
+                .collect(Collectors.toMap(Product::getId,
+                        product -> toSummary(product, primaryImageUrls, availability)));
     }
 
     @Override

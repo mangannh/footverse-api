@@ -1,5 +1,8 @@
 package com.footverse.product.service;
 
+import java.util.Collection;
+import java.util.Map;
+
 import org.springframework.data.domain.Pageable;
 
 import com.footverse.common.dto.PageResponse;
@@ -34,6 +37,24 @@ public interface ProductService {
      */
     PageResponse<ProductSummaryResponse> searchProducts(String name, Long brandId, Long categoryId,
             Pageable pageable);
+
+    /**
+     * Returns the summary of each non-deleted product among the given ids, keyed by product id.
+     * The summaries are assembled exactly as catalog search assembles them — same primary-image and
+     * availability sources — and every id is resolved in one bounded set of queries, so there is no
+     * per-product N+1. An unknown or soft-deleted id is simply absent from the result, which lets a
+     * caller listing rows that reference products (e.g. the wishlist) skip the ones that no longer
+     * resolve.
+     *
+     * <p>The returned map has <strong>no defined iteration order</strong>: it is a lookup table, not
+     * a listing. A caller that renders an ordered list orders its own rows and looks each product up
+     * here.</p>
+     *
+     * @param productIds the product ids to resolve; an empty collection yields an empty result
+     * @return a map from product id to its summary; keys are limited to the ids that resolve to a
+     *         non-deleted product
+     */
+    Map<Long, ProductSummaryResponse> getSummariesByIds(Collection<Long> productIds);
 
     /**
      * Returns the full detail of a non-deleted product, assembled from the product, its images

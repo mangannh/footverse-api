@@ -11,12 +11,15 @@ import org.springframework.transaction.annotation.Transactional;
 import com.footverse.common.exception.DuplicateResourceException;
 import com.footverse.common.exception.ResourceNotFoundException;
 import com.footverse.product.dto.CreateProductVariantRequest;
+import com.footverse.product.dto.ProductVariantPurchaseSnapshot;
 import com.footverse.product.dto.ProductVariantResponse;
 import com.footverse.product.dto.UpdateProductVariantRequest;
 import com.footverse.product.entity.Product;
+import com.footverse.product.entity.ProductImage;
 import com.footverse.product.entity.ProductVariant;
 import com.footverse.product.entity.ProductVariantStatus;
 import com.footverse.product.mapper.ProductVariantMapper;
+import com.footverse.product.repository.ProductImageRepository;
 import com.footverse.product.repository.ProductRepository;
 import com.footverse.product.repository.ProductVariantRepository;
 
@@ -35,6 +38,7 @@ public class ProductVariantServiceImpl implements ProductVariantService {
 
     private final ProductVariantRepository productVariantRepository;
     private final ProductRepository productRepository;
+    private final ProductImageRepository productImageRepository;
     private final ProductVariantMapper productVariantMapper;
 
     @Override
@@ -60,6 +64,24 @@ public class ProductVariantServiceImpl implements ProductVariantService {
             purchasableByProduct.merge(variant.getProduct().getId(), isPurchasable(variant), Boolean::logicalOr);
         }
         return purchasableByProduct;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProductVariantPurchaseSnapshot getPurchaseSnapshot(Long variantId) {
+        ProductVariant variant = productVariantRepository.findById(variantId)
+                .orElseThrow(() -> new ResourceNotFoundException("PRODUCT_VARIANT_NOT_FOUND",
+                        "Product variant not found"));
+        Product product = variant.getProduct();
+        return new ProductVariantPurchaseSnapshot(
+                variant.getId(),
+                product.getId(),
+                product.getName(),
+                primaryImageUrl(product.getId()),
+                variant.getSize(),
+                productVariantMapper.effectivePrice(variant),
+                variant.getStockQuantity(),
+                variant.getStatus() == ProductVariantStatus.ACTIVE);
     }
 
     @Override
@@ -107,6 +129,21 @@ public class ProductVariantServiceImpl implements ProductVariantService {
         variant.setPriceOverride(request.priceOverride());
         variant.setStatus(request.status());
         return productVariantMapper.toResponse(productVariantRepository.save(variant));
+    }
+
+    /**
+     * Returns a product's primary image URL, reusing the batch primary-image read rather than
+     * adding a second query for the single-product case. A product without a primary image simply
+     * has no row, which resolves to {@code null} — never an exception or a placeholder.
+     *
+     * @param productId the owning product id
+     * @return the primary image URL, or {@code null} when the product has none
+     */
+    private String primaryImageUrl(Long productId) {
+        return productImageRepository.findPrimaryByProductIdIn(List.of(productId)).stream()
+                .findFirst()
+                .map(ProductImage::getImageUrl)
+                .orElse(null);
     }
 
     /**

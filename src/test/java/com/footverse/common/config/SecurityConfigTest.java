@@ -10,11 +10,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
  * Verifies the security skeleton end-to-end through the real filter chain: public endpoints
- * pass, protected endpoints return the enveloped 401, and {@code POST /auth/logout} is not
- * public.
+ * pass, protected endpoints (including the customer-scoped shopping paths) return the enveloped
+ * 401, and {@code POST /auth/logout} is not public.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -39,11 +40,18 @@ class SecurityConfigTest {
      */
     @Test
     void protectedEndpointReturnsEnveloped401() throws Exception {
-        mockMvc.perform(get("/api/v1/cart"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.errorCode").value("UNAUTHORIZED"))
-                .andExpect(jsonPath("$.message").value("Authentication required"));
+        expectEnveloped401(get("/api/v1/users/me"));
+    }
+
+    /**
+     * The customer-scoped shopping paths (security-spec §6) reject an anonymous request with the
+     * enveloped 401 before any role check applies.
+     */
+    @Test
+    void customerScopedEndpointsReturnEnveloped401WithoutToken() throws Exception {
+        expectEnveloped401(get("/api/v1/addresses"));
+        expectEnveloped401(get("/api/v1/cart"));
+        expectEnveloped401(get("/api/v1/wishlist"));
     }
 
     /**
@@ -78,5 +86,13 @@ class SecurityConfigTest {
         mockMvc.perform(get("/api/v1/products/1"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("PRODUCT_NOT_FOUND"));
+    }
+
+    private void expectEnveloped401(MockHttpServletRequestBuilder request) throws Exception {
+        mockMvc.perform(request)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("Authentication required"));
     }
 }

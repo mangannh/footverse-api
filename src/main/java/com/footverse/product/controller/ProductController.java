@@ -31,6 +31,9 @@ import com.footverse.product.service.ProductService;
 import com.footverse.product.service.ProductVariantService;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
@@ -44,6 +47,13 @@ import lombok.RequiredArgsConstructor;
  * straight to {@link ProductVariantService} (architecture-spec §7). It holds no business logic and
  * never catches exceptions; role authorization is enforced by the security filter chain
  * (security-spec §6), so the admin operations carry only the Swagger security requirement here.
+ *
+ * <p>The Swagger annotation {@code io.swagger.v3.oas.annotations.responses.ApiResponse} is written
+ * fully qualified throughout, because its simple name collides with the project's response envelope
+ * {@link ApiResponse} that every method returns. Error responses declare the envelope explicitly,
+ * since the {@code GlobalExceptionHandler} returns it rather than the success payload
+ * (error-spec §2). The two public reads are anonymous (security-spec §6), so they declare neither
+ * {@code 401} nor {@code 403}.</p>
  */
 @RestController
 @RequestMapping("/api/v1/products")
@@ -65,6 +75,15 @@ public class ProductController {
      * @return {@code 200 OK} with the page of product summaries
      */
     @Operation(summary = "Search the product catalog")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The matching page of product summaries"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a query parameter failed validation or is not a valid number; "
+                            + "PRODUCT_SORT_INVALID - sort is only allowed by createdAt, basePrice, or name",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<ProductSummaryResponse>>> searchProducts(
             @RequestParam(required = false) @Size(max = 255) String name,
@@ -83,6 +102,18 @@ public class ProductController {
      * @return {@code 200 OK} with the product detail
      */
     @Operation(summary = "Get product detail")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The product detail with its images, variants, and derived availability"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_NOT_FOUND - no such product, or it has been soft-deleted",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<ProductDetailResponse>> getProduct(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(productService.getProductDetail(id)));
@@ -95,6 +126,26 @@ public class ProductController {
      * @return {@code 201 Created} with the created product's detail
      */
     @Operation(summary = "Create a product")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201",
+                    description = "The created product's detail"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a field failed validation, or the body is malformed",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "CATEGORY_NOT_FOUND or BRAND_NOT_FOUND - the referenced association does not exist",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping
     public ResponseEntity<ApiResponse<ProductDetailResponse>> createProduct(
@@ -111,6 +162,28 @@ public class ProductController {
      * @return {@code 200 OK} with the updated product's detail
      */
     @Operation(summary = "Update a product")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The updated product's detail"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a field failed validation, the body is malformed, "
+                            + "or id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_NOT_FOUND - no such product; "
+                            + "CATEGORY_NOT_FOUND or BRAND_NOT_FOUND - a changed association does not exist",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<ProductDetailResponse>> updateProduct(
@@ -126,6 +199,26 @@ public class ProductController {
      * @return {@code 200 OK} with an empty envelope
      */
     @Operation(summary = "Delete a product")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The product was soft-deleted"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_NOT_FOUND - no such product, or it is already soft-deleted",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteProduct(@PathVariable Long id) {
@@ -142,6 +235,32 @@ public class ProductController {
      * @return {@code 201 Created} with the created variant
      */
     @Operation(summary = "Create a product variant")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201",
+                    description = "The created variant"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a field failed validation, the body is malformed, "
+                            + "or id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_NOT_FOUND - no such product, or it has been soft-deleted",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409",
+                    description = "PRODUCT_VARIANT_SIZE_DUPLICATED - the product already has this size; "
+                            + "PRODUCT_VARIANT_SKU_DUPLICATED - the SKU already exists",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/{id}/variants")
     public ResponseEntity<ApiResponse<ProductVariantResponse>> createVariant(
@@ -161,6 +280,32 @@ public class ProductController {
      * @return {@code 200 OK} with the updated variant
      */
     @Operation(summary = "Update a product variant")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The updated variant"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a field failed validation, the body is malformed, "
+                            + "or a path id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_VARIANT_NOT_FOUND - no such variant, or it belongs to another product",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409",
+                    description = "PRODUCT_VARIANT_SIZE_DUPLICATED - the product already has this size; "
+                            + "PRODUCT_VARIANT_SKU_DUPLICATED - the SKU already exists",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @PutMapping("/{id}/variants/{variantId}")
     public ResponseEntity<ApiResponse<ProductVariantResponse>> updateVariant(
@@ -179,6 +324,27 @@ public class ProductController {
      * @return {@code 201 Created} with the created image
      */
     @Operation(summary = "Create a product image")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201",
+                    description = "The created image; a new primary clears the product's previous primary"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a field failed validation, the body is malformed, "
+                            + "or id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_NOT_FOUND - no such product, or it has been soft-deleted",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/{id}/images")
     public ResponseEntity<ApiResponse<ProductImageResponse>> createImage(
@@ -197,6 +363,28 @@ public class ProductController {
      * @return {@code 200 OK} with the updated image
      */
     @Operation(summary = "Update a product image")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The updated image; a new primary clears the product's previous primary"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - a field failed validation, the body is malformed, "
+                            + "or a path id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "PRODUCT_IMAGE_NOT_FOUND - no such image, or it belongs to another product; "
+                            + "PRODUCT_NOT_FOUND - the owning product does not exist when retargeting the primary",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
     @SecurityRequirement(name = "bearerAuth")
     @PutMapping("/{id}/images/{imageId}")
     public ResponseEntity<ApiResponse<ProductImageResponse>> updateImage(

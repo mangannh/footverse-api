@@ -25,6 +25,7 @@ import lombok.RequiredArgsConstructor;
  *
  * <p>The {@link JwtFilter} authenticates Bearer access tokens and populates the caller's role
  * authority. Public catalog reads stay open; the admin catalog writes require {@code ROLE_ADMIN};
+ * the customer-owned shopping resources (address, cart, wishlist) require {@code ROLE_CUSTOMER};
  * every other endpoint requires authentication. A denied authorization is rendered as the
  * enveloped {@code 403} by the {@link RestAccessDeniedHandler}.</p>
  */
@@ -74,6 +75,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/products/*/images").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/products/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/products/**").hasRole("ADMIN")
+                        // Customer-owned shopping resources (security-spec §6). Every HTTP method is
+                        // CUSTOMER-only — deliberately excluding ADMIN, unlike the CUSTOMER+ADMIN
+                        // /users/me rows. Ownership (a caller acts only on their own rows) is enforced
+                        // per-service through CurrentUserProvider, not here (security-spec §7).
+                        .requestMatchers("/api/v1/addresses/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/v1/cart/**").hasRole("CUSTOMER")
+                        .requestMatchers("/api/v1/wishlist/**").hasRole("CUSTOMER")
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions

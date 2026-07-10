@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.footverse.support.AuthFixtures;
@@ -26,7 +27,9 @@ import com.footverse.user.repository.UserRepository;
  * role. A CUSTOMER token is denied the enveloped {@code 403} on admin catalog writes, an ADMIN
  * token clears authorization (reaching the category controller, or the routing-404 for the brand /
  * product controllers that arrive in later tasks), and public catalog reads stay open without a
- * token.
+ * token. Symmetrically, the customer-owned shopping paths (address / cart / wishlist) deny an
+ * ADMIN token and clear a CUSTOMER token; ownership itself is enforced per-service in the tasks
+ * that build those modules (security-spec §7), not by this configuration.
  *
  * <p>ADMIN accounts are provisioned outside the API (user management is Future), so the fixtures
  * persist a CUSTOMER and an ADMIN directly through the repository. Runs in a rolled-back
@@ -139,5 +142,77 @@ class RoleAuthorizationIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data").isArray());
+    }
+
+    /**
+     * An ADMIN token on the customer-owned address path is denied with the enveloped {@code 403}:
+     * the frozen matrix scopes this path to CUSTOMER only.
+     */
+    @Test
+    void adminOnCustomerAddressPathReturnsEnveloped403() throws Exception {
+        expectEnveloped403(get("/api/v1/addresses").header(HttpHeaders.AUTHORIZATION, adminToken()));
+    }
+
+    /**
+     * An ADMIN token on the customer-owned cart path is denied with the enveloped {@code 403}.
+     */
+    @Test
+    void adminOnCustomerCartPathReturnsEnveloped403() throws Exception {
+        expectEnveloped403(post("/api/v1/cart/items").header(HttpHeaders.AUTHORIZATION, adminToken()));
+    }
+
+    /**
+     * An ADMIN token on the customer-owned wishlist path is denied with the enveloped {@code 403}.
+     */
+    @Test
+    void adminOnCustomerWishlistPathReturnsEnveloped403() throws Exception {
+        expectEnveloped403(get("/api/v1/wishlist").header(HttpHeaders.AUTHORIZATION, adminToken()));
+    }
+
+    /**
+     * A CUSTOMER token clears the role check on the address path and reaches the
+     * {@link com.footverse.address.controller.AddressController}, which returns the caller's own
+     * (still empty) address list — proving authorization passed rather than {@code 401}/{@code 403}.
+     */
+    @Test
+    void customerOnCustomerAddressPathPassesRoleAuthorization() throws Exception {
+        mockMvc.perform(get("/api/v1/addresses").header(HttpHeaders.AUTHORIZATION, customerToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /**
+     * A CUSTOMER token clears the role check on the cart path and reaches the
+     * {@link com.footverse.cart.controller.CartController}, which returns the caller's own (still
+     * empty) cart — proving authorization passed rather than {@code 401}/{@code 403}.
+     */
+    @Test
+    void customerOnCustomerCartPathPassesRoleAuthorization() throws Exception {
+        mockMvc.perform(get("/api/v1/cart").header(HttpHeaders.AUTHORIZATION, customerToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.itemCount").value(0));
+    }
+
+    /**
+     * A CUSTOMER token clears the role check on the wishlist path and reaches the
+     * {@link com.footverse.wishlist.controller.WishlistController}, which returns the caller's own
+     * (still empty) wishlist — proving authorization passed rather than {@code 401}/{@code 403}.
+     */
+    @Test
+    void customerOnCustomerWishlistPathPassesRoleAuthorization() throws Exception {
+        mockMvc.perform(get("/api/v1/wishlist").header(HttpHeaders.AUTHORIZATION, customerToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    private void expectEnveloped403(MockHttpServletRequestBuilder request) throws Exception {
+        mockMvc.perform(request)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
     }
 }

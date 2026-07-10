@@ -5,15 +5,16 @@ import java.util.List;
 import java.util.Map;
 
 import com.footverse.product.dto.CreateProductVariantRequest;
+import com.footverse.product.dto.ProductVariantPurchaseSnapshot;
 import com.footverse.product.dto.ProductVariantResponse;
 import com.footverse.product.dto.UpdateProductVariantRequest;
 
 /**
  * Product-module service that owns everything about a product's variants: reads (with the
- * effective price resolved by {@code ProductVariantMapper}), the purchasability rule, and admin
- * create/update. This is the {@code ProductVariantService} half of the architecture-spec §7
- * split; it depends on nothing outside the {@code product} module, keeping the service graph
- * acyclic.
+ * effective price resolved by {@code ProductVariantMapper}), the purchasability rule, the purchase
+ * snapshot the cart and checkout consume, and admin create/update. This is the
+ * {@code ProductVariantService} half of the architecture-spec §7 split; it depends on nothing
+ * outside the {@code product} module, keeping the service graph acyclic.
  */
 public interface ProductVariantService {
 
@@ -46,6 +47,19 @@ public interface ProductVariantService {
      *         limited to products that have at least one variant
      */
     Map<Long, Boolean> getPurchasableStateByProductIds(Collection<Long> productIds);
+
+    /**
+     * Returns the purchase snapshot of a single variant: the owning product's id / name / primary
+     * image URL, the variant's size and stock, whether it is {@code ACTIVE}, and the already
+     * resolved effective unit price. Callers use the snapshot as-is and never recompute the price
+     * (architecture-spec §7).
+     *
+     * @param variantId the variant id
+     * @return the variant's purchase snapshot
+     * @throws com.footverse.common.exception.ResourceNotFoundException {@code 404}
+     *         {@code PRODUCT_VARIANT_NOT_FOUND} when no variant has the given id
+     */
+    ProductVariantPurchaseSnapshot getPurchaseSnapshot(Long variantId);
 
     /**
      * Creates a variant for a product. The product must exist (and not be soft-deleted); the

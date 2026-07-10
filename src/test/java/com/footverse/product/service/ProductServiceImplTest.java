@@ -223,6 +223,87 @@ class ProductServiceImplTest {
         verify(productRepository, never()).search(any(), any(), any(), any());
     }
 
+    // ----- Summary by ids -----
+
+    /**
+     * The summary-by-ids read keys each resolved product by its id and assembles the same fields as
+     * catalog search — name, base price, brand/category name, primary image URL, availability — from
+     * one batched primary-image lookup and one batched availability lookup.
+     */
+    @Test
+    void getSummariesByIdsAssemblesSummariesKeyedByProductId() {
+        init();
+        Product first = product(1L);
+        Product second = product(2L);
+        second.setName("Air Max");
+        second.setBasePrice(new BigDecimal("150.00"));
+        ProductImage primary = image(9L, "primary.png", 0, true);
+        primary.setProduct(first);
+        List<Long> ids = List.of(1L, 2L);
+        when(productRepository.findByIdInAndDeletedAtIsNull(ids)).thenReturn(List.of(first, second));
+        when(productImageRepository.findPrimaryByProductIdIn(ids)).thenReturn(List.of(primary));
+        when(productVariantService.getPurchasableStateByProductIds(ids)).thenReturn(Map.of(1L, true, 2L, false));
+
+        Map<Long, ProductSummaryResponse> result = service.getSummariesByIds(ids);
+
+        assertThat(result).containsOnlyKeys(1L, 2L);
+        ProductSummaryResponse firstSummary = result.get(1L);
+        assertThat(firstSummary.id()).isEqualTo(1L);
+        assertThat(firstSummary.name()).isEqualTo("Air Force 1");
+        assertThat(firstSummary.basePrice()).isEqualByComparingTo("100.00");
+        assertThat(firstSummary.brandName()).isEqualTo("Nike");
+        assertThat(firstSummary.categoryName()).isEqualTo("Sneakers");
+        assertThat(firstSummary.primaryImageUrl()).isEqualTo("primary.png");
+        assertThat(firstSummary.averageRating()).isEqualByComparingTo("0.00");
+        assertThat(firstSummary.available()).isTrue();
+        ProductSummaryResponse secondSummary = result.get(2L);
+        assertThat(secondSummary.name()).isEqualTo("Air Max");
+        assertThat(secondSummary.basePrice()).isEqualByComparingTo("150.00");
+        assertThat(secondSummary.primaryImageUrl()).isNull();
+        assertThat(secondSummary.available()).isFalse();
+    }
+
+    /**
+     * A soft-deleted (or unknown) id is absent from the soft-delete-aware read, so it is absent from
+     * the result; the batched lookups are narrowed to the ids that actually resolved.
+     */
+    @Test
+    void getSummariesByIdsSkipsSoftDeletedAndUnknownIds() {
+        init();
+        Product product = product(1L);
+        when(productRepository.findByIdInAndDeletedAtIsNull(List.of(1L, 2L, 9L))).thenReturn(List.of(product));
+        when(productImageRepository.findPrimaryByProductIdIn(List.of(1L))).thenReturn(List.of());
+        when(productVariantService.getPurchasableStateByProductIds(List.of(1L))).thenReturn(Map.of());
+
+        Map<Long, ProductSummaryResponse> result = service.getSummariesByIds(List.of(1L, 2L, 9L));
+
+        assertThat(result).containsOnlyKeys(1L);
+        assertThat(result.get(1L).available()).isFalse();
+    }
+
+    /**
+     * When no id resolves, the result is empty and neither the image nor the variant lookup runs.
+     */
+    @Test
+    void getSummariesByIdsWithNoResolvingProductReturnsEmptyMap() {
+        init();
+        when(productRepository.findByIdInAndDeletedAtIsNull(List.of(9L))).thenReturn(List.of());
+
+        assertThat(service.getSummariesByIds(List.of(9L))).isEmpty();
+        verifyNoInteractions(productImageRepository, productVariantService);
+    }
+
+    /**
+     * An empty id collection short-circuits: no query is issued at all.
+     */
+    @Test
+    void getSummariesByIdsWithEmptyCollectionQueriesNothing() {
+        init();
+
+        assertThat(service.getSummariesByIds(List.of())).isEmpty();
+        verifyNoInteractions(productRepository, productImageRepository, productVariantService);
+    }
+
     // ----- Detail -----
 
     /**
@@ -437,6 +518,73 @@ class ProductServiceImplTest {
     }
 
     /**
+     * A changed brand is re-validated; an unknown one is a 404 and nothing is persisted. The
+     * unchanged category is not re-validated.
+     */
+    @Test
+    void updateProductRevalidatesChangedBrand() {
+        init();
+        Product product = product(1L);
+        UpdateProductRequest request = new UpdateProductRequest("New", "d", new BigDecimal("120.00"), 3L, 99L);
+        when(productRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(product));
+        when(brandService.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.updateProduct(1L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "BRAND_NOT_FOUND")
+                .hasFieldOrPropertyWithValue("httpStatus", HttpStatus.NOT_FOUND);
+        verify(productRepository, never()).save(any());
+        verify(categoryService, never()).existsById(any());
+    }
+
+    /**
+     * Changing both associations to existing ones rebinds each by reference and persists the product.
+     */
+    @Test
+    void updateProductRebindsChangedCategoryAndBrand() {
+        init();
+        Product product = product(1L);
+        Category newCategory = category(7L, "Boots");
+        Brand newBrand = brand(9L, "Adidas");
+        UpdateProductRequest request = new UpdateProductRequest("New", "d", new BigDecimal("120.00"), 7L, 9L);
+        when(productRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(product));
+        when(categoryService.existsById(7L)).thenReturn(true);
+        when(brandService.existsById(9L)).thenReturn(true);
+        when(entityManager.getReference(Category.class, 7L)).thenReturn(newCategory);
+        when(entityManager.getReference(Brand.class, 9L)).thenReturn(newBrand);
+        when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(productImageRepository.findByProductIdOrderByDisplayOrderAsc(1L)).thenReturn(List.of());
+        when(productVariantService.getVariantsByProduct(1L)).thenReturn(List.of());
+        when(productVariantService.hasPurchasableVariant(1L)).thenReturn(false);
+
+        ProductDetailResponse result = service.updateProduct(1L, request);
+
+        assertThat(result.categoryId()).isEqualTo(7L);
+        assertThat(result.brandId()).isEqualTo(9L);
+        assertThat(product.getCategory()).isSameAs(newCategory);
+        assertThat(product.getBrand()).isSameAs(newBrand);
+    }
+
+    /**
+     * Updating a missing (or already soft-deleted) product is a 404; the associations are never even
+     * inspected.
+     */
+    @Test
+    void updateMissingProductThrowsNotFound() {
+        init();
+        UpdateProductRequest request = new UpdateProductRequest("New", "d", new BigDecimal("120.00"), 3L, 5L);
+        when(productRepository.findByIdAndDeletedAtIsNull(9L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.updateProduct(9L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "PRODUCT_NOT_FOUND")
+                .hasFieldOrPropertyWithValue("httpStatus", HttpStatus.NOT_FOUND);
+        verify(productRepository, never()).save(any());
+        verify(categoryService, never()).existsById(any());
+        verify(brandService, never()).existsById(any());
+    }
+
+    /**
      * When neither category nor brand changes, no existence check runs; the scalar fields are still
      * updated.
      */
@@ -546,6 +694,40 @@ class ProductServiceImplTest {
     }
 
     /**
+     * Creating a non-primary image on a missing (or soft-deleted) product is a 404; the plain read
+     * guards that path.
+     */
+    @Test
+    void createImageNotPrimaryOnMissingProductThrowsNotFound() {
+        init();
+        when(productRepository.findByIdAndDeletedAtIsNull(9L)).thenReturn(Optional.empty());
+        CreateProductImageRequest request = new CreateProductImageRequest("x.png", 2, false);
+
+        assertThatThrownBy(() -> service.createImage(9L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "PRODUCT_NOT_FOUND")
+                .hasFieldOrPropertyWithValue("httpStatus", HttpStatus.NOT_FOUND);
+        verify(productImageRepository, never()).save(any());
+    }
+
+    /**
+     * Creating a primary image on a missing (or soft-deleted) product is a 404 too: the locking read
+     * guards that path, and the existing primary is never cleared.
+     */
+    @Test
+    void createImageAsPrimaryOnMissingProductThrowsNotFound() {
+        init();
+        when(productRepository.findByIdAndDeletedAtIsNullForUpdate(9L)).thenReturn(Optional.empty());
+        CreateProductImageRequest request = new CreateProductImageRequest("x.png", 0, true);
+
+        assertThatThrownBy(() -> service.createImage(9L, request))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "PRODUCT_NOT_FOUND");
+        verify(productImageRepository, never()).findPrimaryByProductIdForUpdate(any());
+        verify(productImageRepository, never()).save(any());
+    }
+
+    /**
      * Updating an image to primary clears the product's previous primary and marks this one primary.
      */
     @Test
@@ -571,6 +753,30 @@ class ProductServiceImplTest {
         assertThat(target.isPrimary()).isTrue();
         assertThat(target.getImageUrl()).isEqualTo("u.png");
         assertThat(target.getDisplayOrder()).isEqualTo(2);
+    }
+
+    /**
+     * Updating an image to non-primary demotes it without locking the product or clearing any
+     * primary: the one-primary invariant is only defended on the promoting path.
+     */
+    @Test
+    void updateImageToNonPrimaryDoesNotLockOrClearPrimary() {
+        init();
+        Product product = product(1L);
+        ProductImage target = image(20L, "t.png", 0, true);
+        target.setProduct(product);
+        when(productImageRepository.findById(20L)).thenReturn(Optional.of(target));
+        when(productImageRepository.save(any(ProductImage.class))).thenAnswer(inv -> inv.getArgument(0));
+        ProductImageResponse mapped = new ProductImageResponse(20L, "u.png", 3, false);
+        when(productImageMapper.toResponse(target)).thenReturn(mapped);
+        UpdateProductImageRequest request = new UpdateProductImageRequest("u.png", 3, false);
+
+        ProductImageResponse result = service.updateImage(1L, 20L, request);
+
+        assertThat(result).isEqualTo(mapped);
+        assertThat(target.isPrimary()).isFalse();
+        verify(productRepository, never()).findByIdAndDeletedAtIsNullForUpdate(any());
+        verify(productImageRepository, never()).findPrimaryByProductIdForUpdate(any());
     }
 
     /**

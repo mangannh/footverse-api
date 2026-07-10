@@ -1,5 +1,7 @@
 package com.footverse.product.repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -41,6 +43,22 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Product p WHERE p.id = :id AND p.deletedAt IS NULL")
     Optional<Product> findByIdAndDeletedAtIsNullForUpdate(@Param("id") Long id);
+
+    /**
+     * Loads the non-deleted products with the given ids in a single query, eagerly fetching the
+     * brand and category the product summary needs so no per-product lazy load is triggered. An
+     * unknown or soft-deleted id simply does not resolve and is absent from the result.
+     *
+     * @param productIds the product ids to load (never empty)
+     * @return the non-deleted products among those ids, in no particular order
+     */
+    @Query("""
+            SELECT p FROM Product p
+            JOIN FETCH p.brand
+            JOIN FETCH p.category
+            WHERE p.id IN :productIds AND p.deletedAt IS NULL
+            """)
+    List<Product> findByIdInAndDeletedAtIsNull(@Param("productIds") Collection<Long> productIds);
 
     /**
      * Searches non-deleted products by an optional case-insensitive partial name and optional
