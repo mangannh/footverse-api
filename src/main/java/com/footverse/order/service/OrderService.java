@@ -11,14 +11,15 @@ import com.footverse.order.dto.OrderDetailResponse;
 import com.footverse.order.dto.OrderSummaryResponse;
 import com.footverse.order.dto.PlaceOrderRequest;
 import com.footverse.order.dto.UpdateCouponRequest;
+import com.footverse.order.dto.UpdateOrderStatusRequest;
 
 /**
  * Single service of the {@code order} module. It owns all order-related logic, including the coupon
  * concern, which lives here rather than in a standalone service (architecture-spec §4, §13).
  *
  * <p>This sprint delivers the admin coupon CRUD, the read-only checkout preview, the transactional
- * checkout, and the caller-scoped order queries; cancellation and admin status updates are added by
- * later tasks.</p>
+ * checkout, the caller-scoped order queries, customer cancellation, and the admin order-status
+ * machine.</p>
  */
 public interface OrderService {
 
@@ -129,4 +130,54 @@ public interface OrderService {
      *         when no order has the given id
      */
     OrderDetailResponse getMyOrder(Long id);
+
+    /**
+     * Cancels one of the caller's orders, ownership-checked, with full compensation
+     * (business-rules → Cancellation; database-spec §18). Cancellation is allowed only while the
+     * order is {@code PENDING}; any other status is rejected with the enveloped
+     * {@code 409 ORDER_NOT_CANCELLABLE} and changes nothing.
+     *
+     * <p>On a {@code PENDING} order, inside one transaction, the service sets the status to
+     * {@code CANCELLED}, records {@code cancelledAt}, restores every order item's stock
+     * ({@link com.footverse.product.service.ProductVariantService#restoreStock}), and — only when the
+     * order applied a coupon — decrements that coupon's {@code usedCount} by one (never below zero).
+     * The payment status is left {@code UNPAID}. Any failure rolls the whole compensation back, so no
+     * partial state (stock restored but order not cancelled, or coupon rolled back but stock not) can
+     * ever persist.</p>
+     *
+     * @param id the order id
+     * @return the cancelled order with its checkout snapshots
+     * @throws com.footverse.common.exception.BusinessException {@code 403 ORDER_FORBIDDEN} when the
+     *         order exists but belongs to another user, or {@code 409 ORDER_NOT_CANCELLABLE} when the
+     *         order is not {@code PENDING}
+     * @throws com.footverse.common.exception.ResourceNotFoundException {@code 404 ORDER_NOT_FOUND}
+     *         when no order has the given id
+     */
+    OrderDetailResponse cancelMyOrder(Long id);
+
+    /**
+     * Advances an order's status as an admin, enforcing the frozen state machine (business-rules →
+     * Order Status Transitions; dto-spec §17). This is an admin operation: it bypasses the ownership
+     * check (any order may be advanced regardless of owner, security-spec §7) and resolves the order
+     * by id alone.
+     *
+     * <p>Only these transitions are legal: {@code PENDING→CONFIRMED}, {@code CONFIRMED→SHIPPING},
+     * {@code SHIPPING→DELIVERED}, and {@code PENDING→CANCELLED}; any other target is rejected with the
+     * enveloped {@code 409} and changes nothing. Marking an order {@code DELIVERED} also flips its
+     * payment to {@code PAID} and records {@code deliveredAt} exactly once (business-rules → Payment).
+     * An admin {@code PENDING→CANCELLED} runs the <em>same</em> compensation as a customer
+     * cancellation — status {@code CANCELLED} + {@code cancelledAt}, stock restore, and coupon
+     * {@code usedCount} decrement, all in one transaction — reusing that single cancellation path
+     * (there are not two).</p>
+     *
+     * @param id      the order id
+     * @param request the validated target status
+     * @return the updated order with its checkout snapshots
+     * @throws com.footverse.common.exception.BusinessException {@code 409 ORDER_NOT_CANCELLABLE} when
+     *         the target is {@code CANCELLED} but the order is not {@code PENDING}, or
+     *         {@code 409 ORDER_INVALID_STATUS_TRANSITION} for any other transition the machine forbids
+     * @throws com.footverse.common.exception.ResourceNotFoundException {@code 404 ORDER_NOT_FOUND}
+     *         when no order has the given id
+     */
+    OrderDetailResponse updateOrderStatus(Long id, UpdateOrderStatusRequest request);
 }

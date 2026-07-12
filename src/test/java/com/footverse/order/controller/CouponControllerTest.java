@@ -1,19 +1,25 @@
 package com.footverse.order.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -22,22 +28,28 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.footverse.common.config.SecurityConfig;
+import com.footverse.common.dto.PageResponse;
 import com.footverse.common.exception.BusinessException;
+import com.footverse.common.exception.DuplicateResourceException;
 import com.footverse.common.exception.ResourceNotFoundException;
 import com.footverse.common.security.JwtUtil;
 import com.footverse.common.security.RestAccessDeniedHandler;
 import com.footverse.common.security.RestAuthenticationEntryPoint;
 import com.footverse.order.dto.CouponPreviewResponse;
+import com.footverse.order.dto.CouponResponse;
+import com.footverse.order.entity.DiscountType;
 import com.footverse.order.service.OrderService;
 import com.footverse.support.AuthFixtures;
 import com.footverse.user.entity.Role;
 
 /**
- * Web-slice tests for the {@link CouponController} CUSTOMER checkout preview
- * {@code POST /coupons/validate}: the success envelope, the request-body validation (empty and
- * duplicate cart item ids), the role denial for an ADMIN token, the anonymous {@code 401}, and the
- * coupon / cart business errors rendered through the standard envelope. The security filter chain is
- * imported; the service is mocked, so no business rule runs here.
+ * Web-slice tests for the {@link CouponController}: the CUSTOMER checkout preview
+ * {@code POST /coupons/validate} and the ADMIN coupon CRUD ({@code GET /coupons},
+ * {@code POST /coupons}, {@code PUT /coupons/{id}}). They assert the success envelopes, request-body
+ * validation, the role denial for the wrong token (the preview is CUSTOMER-only, the CRUD ADMIN-only),
+ * the anonymous {@code 401}, and the coupon / cart business errors rendered through the standard
+ * envelope. The security filter chain is imported; the service is mocked, so no business rule runs
+ * here.
  */
 @WebMvcTest(CouponController.class)
 @Import({SecurityConfig.class, JwtUtil.class, RestAuthenticationEntryPoint.class, RestAccessDeniedHandler.class})
@@ -244,5 +256,170 @@ class CouponControllerTest {
                         .content("{\"cartItemIds\":[10]}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("CART_ITEM_FORBIDDEN"));
+    }
+
+    // ----- Admin coupon CRUD (GET / POST /coupons, PUT /coupons/{id}) -----
+
+    private static final String VALID_COUPON_BODY = """
+            {"code":"SAVE","name":"Save Now","discountType":"FIXED","discountValue":50,
+             "minOrderAmount":0,"startAt":"2020-01-01T00:00:00","endAt":"2030-01-01T00:00:00","enabled":true}
+            """;
+
+    private CouponResponse couponResponse() {
+        return new CouponResponse(1L, "SAVE", "Save Now", null, DiscountType.FIXED, new BigDecimal("50"),
+                new BigDecimal("0"), null, LocalDateTime.of(2020, 1, 1, 0, 0),
+                LocalDateTime.of(2030, 1, 1, 0, 0), null, 0, true);
+    }
+
+    /**
+     * {@code GET /coupons} as an ADMIN returns the page of coupons.
+     */
+    @Test
+    void listCouponsAsAdminReturns200() throws Exception {
+        when(orderService.getCoupons(any()))
+                .thenReturn(PageResponse.from(new PageImpl<>(List.of(couponResponse()))));
+
+        mockMvc.perform(get("/api/v1/coupons").header(HttpHeaders.AUTHORIZATION, adminToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content[0].code").value("SAVE"))
+                .andExpect(jsonPath("$.data.content[0].discountType").value("FIXED"));
+    }
+
+    /**
+     * {@code GET /coupons} with a CUSTOMER token is denied the enveloped {@code 403}: coupon CRUD is
+     * ADMIN-only (security-spec §6).
+     */
+    @Test
+    void listCouponsAsCustomerReturns403() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons").header(HttpHeaders.AUTHORIZATION, customerToken()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        verify(orderService, never()).getCoupons(any());
+    }
+
+    /**
+     * An anonymous {@code GET /coupons} is denied the enveloped {@code 401}.
+     */
+    @Test
+    void listCouponsAnonymouslyReturns401() throws Exception {
+        mockMvc.perform(get("/api/v1/coupons"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("UNAUTHORIZED"));
+
+        verify(orderService, never()).getCoupons(any());
+    }
+
+    /**
+     * {@code POST /coupons} as an ADMIN returns {@code 201 Created} with the created coupon.
+     */
+    @Test
+    void createCouponAsAdminReturns201() throws Exception {
+        when(orderService.createCoupon(any())).thenReturn(couponResponse());
+
+        mockMvc.perform(post("/api/v1/coupons")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_COUPON_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.code").value("SAVE"));
+    }
+
+    /**
+     * A blank {@code code} fails Bean Validation with the enveloped {@code 400}.
+     */
+    @Test
+    void createCouponWithBlankCodeReturns400() throws Exception {
+        mockMvc.perform(post("/api/v1/coupons")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"\",\"name\":\"Save Now\",\"discountType\":\"FIXED\","
+                                + "\"discountValue\":50,\"minOrderAmount\":0,\"startAt\":\"2020-01-01T00:00:00\","
+                                + "\"endAt\":\"2030-01-01T00:00:00\",\"enabled\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+
+        verify(orderService, never()).createCoupon(any());
+    }
+
+    /**
+     * A duplicate coupon code surfaces the service's {@code 409 COUPON_CODE_DUPLICATED}.
+     */
+    @Test
+    void createCouponWithDuplicateCodeReturns409() throws Exception {
+        when(orderService.createCoupon(any()))
+                .thenThrow(new DuplicateResourceException("COUPON_CODE_DUPLICATED", "Coupon code already exists"));
+
+        mockMvc.perform(post("/api/v1/coupons")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_COUPON_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("COUPON_CODE_DUPLICATED"));
+    }
+
+    /**
+     * {@code POST /coupons} with a CUSTOMER token is denied the enveloped {@code 403}.
+     */
+    @Test
+    void createCouponAsCustomerReturns403() throws Exception {
+        mockMvc.perform(post("/api/v1/coupons")
+                        .header(HttpHeaders.AUTHORIZATION, customerToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_COUPON_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        verify(orderService, never()).createCoupon(any());
+    }
+
+    /**
+     * {@code PUT /coupons/{id}} as an ADMIN returns {@code 200 OK} with the updated coupon.
+     */
+    @Test
+    void updateCouponAsAdminReturns200() throws Exception {
+        when(orderService.updateCoupon(eq(1L), any())).thenReturn(couponResponse());
+
+        mockMvc.perform(put("/api/v1/coupons/1")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_COUPON_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(1))
+                .andExpect(jsonPath("$.data.code").value("SAVE"));
+    }
+
+    /**
+     * Updating an unknown coupon surfaces the service's {@code 404 COUPON_NOT_FOUND}.
+     */
+    @Test
+    void updateCouponOfUnknownIdReturns404() throws Exception {
+        when(orderService.updateCoupon(eq(1L), any()))
+                .thenThrow(new ResourceNotFoundException("COUPON_NOT_FOUND", "Coupon not found"));
+
+        mockMvc.perform(put("/api/v1/coupons/1")
+                        .header(HttpHeaders.AUTHORIZATION, adminToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_COUPON_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("COUPON_NOT_FOUND"));
+    }
+
+    /**
+     * {@code PUT /coupons/{id}} with a CUSTOMER token is denied the enveloped {@code 403}.
+     */
+    @Test
+    void updateCouponAsCustomerReturns403() throws Exception {
+        mockMvc.perform(put("/api/v1/coupons/1")
+                        .header(HttpHeaders.AUTHORIZATION, customerToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_COUPON_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        verify(orderService, never()).updateCoupon(any(), any());
     }
 }

@@ -37,6 +37,7 @@ import com.footverse.order.dto.OrderItemResponse;
 import com.footverse.order.dto.OrderSummaryResponse;
 import com.footverse.order.dto.PlaceOrderRequest;
 import com.footverse.order.dto.UpdateCouponRequest;
+import com.footverse.order.dto.UpdateOrderStatusRequest;
 import com.footverse.order.entity.Coupon;
 import com.footverse.order.entity.DiscountType;
 import com.footverse.order.entity.Order;
@@ -90,6 +91,10 @@ public class OrderServiceImpl implements OrderService {
     private static final String ORDER_NOT_FOUND_MESSAGE = "Order not found";
     private static final String ORDER_FORBIDDEN_CODE = "ORDER_FORBIDDEN";
     private static final String ORDER_FORBIDDEN_MESSAGE = "You cannot access this order";
+    private static final String ORDER_NOT_CANCELLABLE_CODE = "ORDER_NOT_CANCELLABLE";
+    private static final String ORDER_NOT_CANCELLABLE_MESSAGE = "Order can only be cancelled while PENDING";
+    private static final String ORDER_INVALID_STATUS_TRANSITION_CODE = "ORDER_INVALID_STATUS_TRANSITION";
+    private static final String ORDER_INVALID_STATUS_TRANSITION_MESSAGE = "Order status transition is not allowed";
 
     /** Field the order-history list is always sorted by, most-recent-first (assumption 3). */
     private static final String ORDER_HISTORY_SORT_FIELD = "createdAt";
@@ -234,6 +239,131 @@ public class OrderServiceImpl implements OrderService {
                 .map(orderMapper::toResponse)
                 .toList();
         return orderMapper.toDetailResponse(order, items);
+    }
+
+    @Override
+    @Transactional
+    public OrderDetailResponse cancelMyOrder(Long id) {
+        Long userId = currentUserProvider.getCurrentUser().getId();
+        Order order = orderRepository.findByIdAndUserId(id, userId)
+                .orElseThrow(() -> unresolvableOrder(id));
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new BusinessException(HttpStatus.CONFLICT,
+                    ORDER_NOT_CANCELLABLE_CODE, ORDER_NOT_CANCELLABLE_MESSAGE);
+        }
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        applyCancellation(order, items);
+        List<OrderItemResponse> itemResponses = items.stream().map(orderMapper::toResponse).toList();
+        return orderMapper.toDetailResponse(order, itemResponses);
+    }
+
+    @Override
+    @Transactional
+    public OrderDetailResponse updateOrderStatus(Long id, UpdateOrderStatusRequest request) {
+        // Admin operation — ownership is bypassed (security-spec §7); resolve by id alone.
+        Order order = orderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(ORDER_NOT_FOUND_CODE, ORDER_NOT_FOUND_MESSAGE));
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        applyStatusTransition(order, request.status(), items);
+        List<OrderItemResponse> itemResponses = items.stream().map(orderMapper::toResponse).toList();
+        return orderMapper.toDetailResponse(order, itemResponses);
+    }
+
+    /**
+     * Applies an admin status transition to an order against the frozen state machine (business-rules
+     * → Order Status Transitions): {@code PENDING→CONFIRMED}, {@code CONFIRMED→SHIPPING},
+     * {@code SHIPPING→DELIVERED}, and {@code PENDING→CANCELLED}. A {@code CANCELLED} target reuses the
+     * single {@link #applyCancellation(Order, List)} compensation path (there are not two cancellation
+     * flows), but only from {@code PENDING} — a non-{@code PENDING} cancel is the enveloped
+     * {@code 409 ORDER_NOT_CANCELLABLE}. A {@code DELIVERED} target additionally flips the payment to
+     * {@code PAID} and stamps {@code deliveredAt} exactly once (business-rules → Payment). Any other
+     * transition is the enveloped {@code 409 ORDER_INVALID_STATUS_TRANSITION} and mutates nothing.
+     *
+     * @param order  the order to advance (mutated in place)
+     * @param target the requested target status
+     * @param items  the order's lines, credited back to their variants when the transition cancels
+     */
+    private void applyStatusTransition(Order order, OrderStatus target, List<OrderItem> items) {
+        OrderStatus current = order.getStatus();
+        if (target == OrderStatus.CANCELLED) {
+            if (current != OrderStatus.PENDING) {
+                throw new BusinessException(HttpStatus.CONFLICT,
+                        ORDER_NOT_CANCELLABLE_CODE, ORDER_NOT_CANCELLABLE_MESSAGE);
+            }
+            applyCancellation(order, items);
+            return;
+        }
+        if (!isLegalForwardTransition(current, target)) {
+            throw new BusinessException(HttpStatus.CONFLICT,
+                    ORDER_INVALID_STATUS_TRANSITION_CODE, ORDER_INVALID_STATUS_TRANSITION_MESSAGE);
+        }
+        order.setStatus(target);
+        if (target == OrderStatus.DELIVERED) {
+            order.setPaymentStatus(PaymentStatus.PAID);
+            order.setDeliveredAt(LocalDateTime.now());
+        }
+        orderRepository.save(order);
+    }
+
+    /**
+     * Reports whether {@code current → target} is one of the frozen forward transitions
+     * {@code PENDING→CONFIRMED}, {@code CONFIRMED→SHIPPING}, {@code SHIPPING→DELIVERED} (business-rules
+     * → Order Status Transitions). The {@code PENDING→CANCELLED} branch is handled separately by
+     * {@link #applyStatusTransition(Order, OrderStatus, List)}, so it is intentionally not listed here.
+     *
+     * @param current the order's current status
+     * @param target  the requested target status
+     * @return {@code true} when the forward transition is allowed
+     */
+    private boolean isLegalForwardTransition(OrderStatus current, OrderStatus target) {
+        return (current == OrderStatus.PENDING && target == OrderStatus.CONFIRMED)
+                || (current == OrderStatus.CONFIRMED && target == OrderStatus.SHIPPING)
+                || (current == OrderStatus.SHIPPING && target == OrderStatus.DELIVERED);
+    }
+
+    /**
+     * Applies the full cancellation compensation to a {@code PENDING} order, in one unit inside the
+     * caller's transaction (business-rules → Cancellation; database-spec §18): sets the status to
+     * {@code CANCELLED} and stamps {@code cancelledAt}, restores every order item's stock via
+     * {@link ProductVariantService#restoreStock} (item 04), and — only when the order applied a
+     * coupon — decrements that coupon's {@code usedCount} by one. The decrement is floored at zero so
+     * it can never drive the counter negative (database-spec §18); the payment status is left
+     * untouched at {@code UNPAID} (business-rules → Cancellation). The caller has already verified the
+     * order is {@code PENDING}; this method never reads the status again.
+     *
+     * <p>The whole compensation shares the caller's {@code @Transactional} boundary, so a failure of
+     * the stock restore or the coupon update rolls the status change back with it — no partial state
+     * (stock restored but order not cancelled, or coupon rolled back but stock not) can persist.</p>
+     *
+     * @param order the {@code PENDING} order to cancel (mutated in place)
+     * @param items the order's lines, whose quantities are credited back to their variants
+     */
+    private void applyCancellation(Order order, List<OrderItem> items) {
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelledAt(LocalDateTime.now());
+        orderRepository.save(order);
+        productVariantService.restoreStock(restoreDemandByVariant(items));
+        Coupon coupon = order.getCoupon();
+        if (coupon != null) {
+            coupon.setUsedCount(Math.max(0, coupon.getUsedCount() - 1));
+            couponRepository.save(coupon);
+        }
+    }
+
+    /**
+     * Builds the per-variant quantity credit for the stock restore, keyed by variant id. Order items
+     * hold distinct variants, but quantities are merged defensively so the credit is well formed
+     * regardless — mirroring {@link #demandByVariant(List)} on the checkout side.
+     *
+     * @param items the order's lines
+     * @return the quantity to add back per variant id
+     */
+    private Map<Long, Integer> restoreDemandByVariant(List<OrderItem> items) {
+        Map<Long, Integer> demand = new LinkedHashMap<>();
+        for (OrderItem item : items) {
+            demand.merge(item.getProductVariantId(), item.getQuantity(), Integer::sum);
+        }
+        return demand;
     }
 
     /**

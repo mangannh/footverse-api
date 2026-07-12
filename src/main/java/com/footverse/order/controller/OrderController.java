@@ -5,6 +5,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +17,7 @@ import com.footverse.common.dto.PageResponse;
 import com.footverse.order.dto.OrderDetailResponse;
 import com.footverse.order.dto.OrderSummaryResponse;
 import com.footverse.order.dto.PlaceOrderRequest;
+import com.footverse.order.dto.UpdateOrderStatusRequest;
 import com.footverse.order.service.OrderService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,14 +29,16 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Order endpoints for the authenticated customer (dto-spec §20). This task delivers checkout
- * ({@code POST /orders}) and the caller-scoped order queries ({@code GET /orders},
- * {@code GET /orders/{id}}); cancellation and admin status update are added by later tasks. The
+ * Order endpoints (dto-spec §20). The customer surface — checkout ({@code POST /orders}), the
+ * caller-scoped order queries ({@code GET /orders}, {@code GET /orders/{id}}), and cancellation
+ * ({@code POST /orders/{id}/cancel}) — plus the single admin operation, the order-status machine
+ * ({@code PATCH /orders/{id}/status}). The
  * controller only maps HTTP to the {@link OrderService} and wraps results in the response envelope —
  * it holds no business logic, computes no money, and performs no ownership check. Role authorization
- * is enforced by the security filter chain (security-spec §6 — every order path requires CUSTOMER)
- * and ownership by the service (security-spec §7); no endpoint accepts a user id, so the caller can
- * only ever reach their own resources.
+ * is enforced by the security filter chain (security-spec §6 — the customer order paths require
+ * CUSTOMER, while {@code PATCH /orders/{id}/status} requires ADMIN and bypasses ownership,
+ * security-spec §7) and ownership by the service on the customer paths; no customer endpoint accepts
+ * a user id, so a customer can only ever reach their own resources.
  *
  * <p>The Swagger annotation {@code io.swagger.v3.oas.annotations.responses.ApiResponse} is written
  * fully qualified throughout, because its simple name collides with the project's response envelope
@@ -156,5 +160,89 @@ public class OrderController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<OrderDetailResponse>> getMyOrder(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(orderService.getMyOrder(id)));
+    }
+
+    /**
+     * Cancels one of the current customer's orders. Customer only; ownership-checked by the service.
+     * Allowed only while the order is {@code PENDING}; transactional — the status change, stock
+     * restore, and coupon-usage decrement commit or roll back together.
+     *
+     * @param id the order id
+     * @return {@code 200 OK} with the cancelled order and its checkout snapshots
+     */
+    @Operation(summary = "Cancel one of the current customer's PENDING orders")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The cancelled order with its checkout snapshots"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not a CUSTOMER; "
+                            + "ORDER_FORBIDDEN - the order belongs to another user",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "ORDER_NOT_FOUND - no order has this id",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409",
+                    description = "ORDER_NOT_CANCELLABLE - the order is not PENDING",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<ApiResponse<OrderDetailResponse>> cancelMyOrder(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.cancelMyOrder(id)));
+    }
+
+    /**
+     * Advances an order's status. Admin only; ownership is bypassed (security-spec §7). Transactional
+     * — a {@code PENDING→CANCELLED} transition restores stock and coupon usage together, and a
+     * {@code SHIPPING→DELIVERED} transition flips the payment to {@code PAID} and records
+     * {@code deliveredAt}.
+     *
+     * @param id      the order id
+     * @param request the validated target status
+     * @return {@code 200 OK} with the updated order and its snapshots
+     */
+    @Operation(summary = "Advance an order's status (admin), enforcing the frozen state machine")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
+                    description = "The updated order with its snapshots"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400",
+                    description = "VALIDATION_ERROR - status is missing or not a valid OrderStatus, "
+                            + "the body is malformed, or the id is not a valid number",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401",
+                    description = "UNAUTHORIZED - missing, invalid, or expired access token",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403",
+                    description = "FORBIDDEN - the caller is not an ADMIN",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404",
+                    description = "ORDER_NOT_FOUND - no order has this id",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class))),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409",
+                    description = "ORDER_NOT_CANCELLABLE - a CANCELLED target while the order is not PENDING; "
+                            + "ORDER_INVALID_STATUS_TRANSITION - any other transition the machine forbids",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class)))
+    })
+    @SecurityRequirement(name = "bearerAuth")
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<ApiResponse<OrderDetailResponse>> updateOrderStatus(
+            @PathVariable Long id, @Valid @RequestBody UpdateOrderStatusRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(orderService.updateOrderStatus(id, request)));
     }
 }

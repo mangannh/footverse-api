@@ -193,4 +193,123 @@ class OpenApiDocumentationTest {
                 .andExpect(jsonPath("$.paths['/api/v1/categories'].get.security").doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/auth/login'].post.security").doesNotExist());
     }
+
+    /**
+     * The coupon operations document exactly the statuses each can really return: the CUSTOMER
+     * checkout preview ({@code 200}/{@code 400}/{@code 403}/{@code 404}, never {@code 409} — it
+     * mutates nothing), the ADMIN list ({@code 200}, no {@code 400}/{@code 404} — it has no request
+     * body and no typed path parameter), the ADMIN create ({@code 201}/{@code 409}, no {@code 404}),
+     * and the ADMIN update ({@code 200}/{@code 404}/{@code 409}); all protected paths declare
+     * {@code 401}/{@code 403} (dto-spec §20, error-spec §8.10, security-spec §6, validation-spec §9).
+     */
+    @Test
+    void couponOperationsDocumentTheirStatuses() throws Exception {
+        apiDocs()
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.responses.400").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.responses.401").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.responses.404").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.responses.409").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.responses.401").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.responses.400").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.responses.404").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].post.responses.201").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].post.responses.400").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].post.responses.409").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].post.responses.404").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/{id}'].put.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/{id}'].put.responses.400").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/{id}'].put.responses.404").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/{id}'].put.responses.409").exists());
+    }
+
+    /**
+     * The customer order operations document exactly their statuses: checkout ({@code 201}, never
+     * {@code 409}), the caller-scoped list ({@code 200}, no {@code 400}/{@code 404}), the
+     * ownership-checked detail ({@code 200}/{@code 400}/{@code 403}/{@code 404}), and the
+     * cancellation ({@code 200}/{@code 403}/{@code 404}/{@code 409}) (dto-spec §20, error-spec §8.11,
+     * security-spec §6/§7).
+     */
+    @Test
+    void orderCustomerOperationsDocumentTheirStatuses() throws Exception {
+        apiDocs()
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.201").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.400").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.401").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.404").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.409").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].get.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].get.responses.401").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].get.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].get.responses.400").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].get.responses.404").doesNotExist())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}'].get.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}'].get.responses.400").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}'].get.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}'].get.responses.404").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/cancel'].post.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/cancel'].post.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/cancel'].post.responses.404").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/cancel'].post.responses.409").exists());
+    }
+
+    /**
+     * The admin order-status operation documents the {@code 409} state-conflict pair
+     * ({@code ORDER_NOT_CANCELLABLE} / {@code ORDER_INVALID_STATUS_TRANSITION}) alongside the
+     * validation {@code 400}, the role {@code 403}, and the {@code 404}. Being an admin operation it
+     * bypasses ownership, so its {@code 403} is only the role denial and its {@code 404} the only
+     * not-found (error-spec §8.11, security-spec §7, validation-spec §12).
+     */
+    @Test
+    void orderAdminStatusOperationDocumentsItsStatuses() throws Exception {
+        apiDocs()
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.200").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.400").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.401").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.403").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.404").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.409").exists());
+    }
+
+    /**
+     * Every coupon and order operation is restricted by the frozen matrix (none is public), so each
+     * carries the bearer padlock (security-spec §6).
+     */
+    @Test
+    void couponAndOrderOperationsCarryTheBearerPadlock() throws Exception {
+        apiDocs()
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/validate'].post.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].post.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/coupons/{id}'].put.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].get.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}'].get.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/cancel'].post.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.security[0].bearerAuth").exists());
+    }
+
+    /**
+     * Coupon and order error responses bind the shared error envelope schema, while their success
+     * responses keep the payload schema springdoc infers from the controller return type
+     * (api-guidelines §Swagger).
+     */
+    @Test
+    void couponAndOrderResponsesUseTheExpectedSchemas() throws Exception {
+        apiDocs()
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.404"
+                        + ".content['application/json'].schema.$ref").value(ERROR_ENVELOPE_SCHEMA))
+                .andExpect(jsonPath("$.paths['/api/v1/orders/{id}/status'].patch.responses.409"
+                        + ".content['application/json'].schema.$ref").value(ERROR_ENVELOPE_SCHEMA))
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].post.responses.409"
+                        + ".content['application/json'].schema.$ref").value(ERROR_ENVELOPE_SCHEMA))
+                .andExpect(jsonPath("$.paths['/api/v1/orders'].post.responses.201.content.*.schema.$ref")
+                        .value("#/components/schemas/ApiResponseOrderDetailResponse"))
+                .andExpect(jsonPath("$.paths['/api/v1/coupons'].get.responses.200.content.*.schema.$ref")
+                        .value("#/components/schemas/ApiResponsePageResponseCouponResponse"));
+    }
 }
