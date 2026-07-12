@@ -1,6 +1,5 @@
 package com.footverse.product.service;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -35,6 +34,8 @@ import com.footverse.product.entity.ProductImage;
 import com.footverse.product.mapper.ProductImageMapper;
 import com.footverse.product.repository.ProductImageRepository;
 import com.footverse.product.repository.ProductRepository;
+import com.footverse.review.dto.RatingSummary;
+import com.footverse.review.service.ReviewService;
 
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -54,8 +55,11 @@ import lombok.RequiredArgsConstructor;
  * the exactly-one-primary-image invariant (architecture-spec §13) and soft-deletes products by
  * stamping {@code deletedAt}.</p>
  *
- * <p>Until the {@code review} module lands, {@code averageRating} and {@code reviewCount} are the
- * documented placeholders {@code 0.00} / {@code 0} (sprint-2-plan item 09).</p>
+ * <p>{@code averageRating} and {@code reviewCount} are live on-demand values supplied by
+ * {@link ReviewService} — the single summary for a product detail and one batch query for a search
+ * page (no per-product N+1) — completing the frozen {@code ProductService → ReviewService} arrow
+ * (architecture-spec §7). A product with no reviews carries {@link RatingSummary#empty()}
+ * ({@code 0.00} / {@code 0}).</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -64,18 +68,13 @@ public class ProductServiceImpl implements ProductService {
     /** Sort keys the catalog search accepts; anything else is rejected (validation-spec §6). */
     private static final Set<String> ALLOWED_SORT_PROPERTIES = Set.of("createdAt", "basePrice", "name");
 
-    /** Placeholder rating until the {@code review} module supplies live data. */
-    private static final BigDecimal PLACEHOLDER_AVERAGE_RATING = new BigDecimal("0.00");
-
-    /** Placeholder review count until the {@code review} module supplies live data. */
-    private static final int PLACEHOLDER_REVIEW_COUNT = 0;
-
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
     private final ProductImageMapper productImageMapper;
     private final ProductVariantService productVariantService;
     private final CategoryService categoryService;
     private final BrandService brandService;
+    private final ReviewService reviewService;
     private final EntityManager entityManager;
 
     @Override
@@ -91,7 +90,10 @@ public class ProductServiceImpl implements ProductService {
         Map<Long, Boolean> availability = productIds.isEmpty()
                 ? Map.of()
                 : productVariantService.getPurchasableStateByProductIds(productIds);
-        return PageResponse.from(page.map(product -> toSummary(product, primaryImageUrls, availability)));
+        Map<Long, RatingSummary> ratings = productIds.isEmpty()
+                ? Map.of()
+                : reviewService.getRatingSummaries(productIds);
+        return PageResponse.from(page.map(product -> toSummary(product, primaryImageUrls, ratings, availability)));
     }
 
     @Override
@@ -107,9 +109,10 @@ public class ProductServiceImpl implements ProductService {
         List<Long> resolvedIds = products.stream().map(Product::getId).toList();
         Map<Long, String> primaryImageUrls = primaryImageUrlsByProductIds(resolvedIds);
         Map<Long, Boolean> availability = productVariantService.getPurchasableStateByProductIds(resolvedIds);
+        Map<Long, RatingSummary> ratings = reviewService.getRatingSummaries(resolvedIds);
         return products.stream()
                 .collect(Collectors.toMap(Product::getId,
-                        product -> toSummary(product, primaryImageUrls, availability)));
+                        product -> toSummary(product, primaryImageUrls, ratings, availability)));
     }
 
     @Override
@@ -238,7 +241,7 @@ public class ProductServiceImpl implements ProductService {
     /**
      * Assembles the full product detail: own fields, brand/category associations, images (sorted by
      * {@code displayOrder}), variants and derived availability from {@link ProductVariantService},
-     * and the rating/review placeholders.
+     * and the live rating aggregate from {@link ReviewService} (a single on-demand summary).
      *
      * @param product the source product
      * @return the assembled detail response
@@ -250,6 +253,7 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
         List<ProductVariantResponse> variants = productVariantService.getVariantsByProduct(id);
         boolean available = productVariantService.hasPurchasableVariant(id);
+        RatingSummary rating = reviewService.getRatingSummary(id);
         return new ProductDetailResponse(
                 product.getId(),
                 product.getName(),
@@ -261,8 +265,8 @@ public class ProductServiceImpl implements ProductService {
                 product.getCategory().getName(),
                 images,
                 variants,
-                PLACEHOLDER_AVERAGE_RATING,
-                PLACEHOLDER_REVIEW_COUNT,
+                rating.averageRating(),
+                rating.reviewCount(),
                 available,
                 product.getCreatedAt());
     }
@@ -281,16 +285,19 @@ public class ProductServiceImpl implements ProductService {
 
     /**
      * Assembles a product summary from the product's own fields, its brand/category names, and the
-     * pre-loaded primary-image and availability maps — never querying inside the mapping loop.
+     * pre-loaded primary-image, rating, and availability maps — never querying inside the mapping
+     * loop. A product absent from the rating map has no reviews, so it takes
+     * {@link RatingSummary#empty()}.
      *
      * @param product          the source product
      * @param primaryImageUrls primary image URL by product id (absent when the product has none)
+     * @param ratings          rating aggregate by product id (absent when the product has no reviews)
      * @param availability     purchasability by product id (absent when the product has no
      *                         purchasable variant)
      * @return the summary response
      */
     private ProductSummaryResponse toSummary(Product product, Map<Long, String> primaryImageUrls,
-            Map<Long, Boolean> availability) {
+            Map<Long, RatingSummary> ratings, Map<Long, Boolean> availability) {
         return new ProductSummaryResponse(
                 product.getId(),
                 product.getName(),
@@ -298,7 +305,7 @@ public class ProductServiceImpl implements ProductService {
                 product.getBrand().getName(),
                 product.getCategory().getName(),
                 primaryImageUrls.get(product.getId()),
-                PLACEHOLDER_AVERAGE_RATING,
+                ratings.getOrDefault(product.getId(), RatingSummary.empty()).averageRating(),
                 availability.getOrDefault(product.getId(), false));
     }
 

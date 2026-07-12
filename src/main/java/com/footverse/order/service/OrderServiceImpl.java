@@ -51,6 +51,7 @@ import com.footverse.order.repository.CouponRepository;
 import com.footverse.order.repository.OrderItemRepository;
 import com.footverse.order.repository.OrderRepository;
 import com.footverse.product.dto.ProductVariantPurchaseSnapshot;
+import com.footverse.product.dto.ProductVariantResponse;
 import com.footverse.product.service.ProductVariantService;
 import com.footverse.user.entity.User;
 
@@ -239,6 +240,20 @@ public class OrderServiceImpl implements OrderService {
                 .map(orderMapper::toResponse)
                 .toList();
         return orderMapper.toDetailResponse(order, items);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasDeliveredOrderForProduct(Long productId) {
+        Long userId = currentUserProvider.getCurrentUser().getId();
+        List<Long> variantIds = productVariantService.getVariantsByProduct(productId).stream()
+                .map(ProductVariantResponse::id)
+                .toList();
+        if (variantIds.isEmpty()) {
+            return false;
+        }
+        return orderItemRepository
+                .existsDeliveredOrderItemForUserAndProductVariants(userId, variantIds);
     }
 
     @Override

@@ -132,6 +132,29 @@ public interface OrderService {
     OrderDetailResponse getMyOrder(Long id);
 
     /**
+     * Reports whether the current caller has at least one {@code DELIVERED} order containing a
+     * variant of the given product — the one order-domain fact the review module needs to gate a
+     * review (business-rules → Review; database-spec §15), exposed here so {@code ReviewService}
+     * never reaches into order rows (architecture-spec §8). This is a caller-scoped read resolved
+     * through {@link com.footverse.common.security.CurrentUserProvider} (security-spec §7): it takes
+     * no client-supplied user id and answers only for the authenticated user.
+     *
+     * <p>The name states an <em>order</em> capability, not a review policy: whether this fact grants
+     * a review is the review module's decision, deliberately kept out of the order module so the
+     * ownership boundary stays sharp (sprint-5-plan item 03). The product's variant ids are resolved
+     * through the {@link com.footverse.product.service.ProductVariantService} dependency this service
+     * already has; a product with no variants — including an unknown product id, which simply has no
+     * variants — is not eligible and yields {@code false}, never an exception. The read mutates
+     * nothing.</p>
+     *
+     * @param productId the product to check for a delivered purchase
+     * @return {@code true} when a {@code DELIVERED} order of the caller contains a variant of the
+     *         product; {@code false} for no order, a non-{@code DELIVERED} status, another user's
+     *         order, or a variant-less / unknown product
+     */
+    boolean hasDeliveredOrderForProduct(Long productId);
+
+    /**
      * Cancels one of the caller's orders, ownership-checked, with full compensation
      * (business-rules → Cancellation; database-spec §18). Cancellation is allowed only while the
      * order is {@code PENDING}; any other status is rejected with the enveloped

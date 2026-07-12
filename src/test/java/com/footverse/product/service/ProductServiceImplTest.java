@@ -50,6 +50,8 @@ import com.footverse.product.entity.ProductVariantStatus;
 import com.footverse.product.mapper.ProductImageMapper;
 import com.footverse.product.repository.ProductImageRepository;
 import com.footverse.product.repository.ProductRepository;
+import com.footverse.review.dto.RatingSummary;
+import com.footverse.review.service.ReviewService;
 
 import jakarta.persistence.EntityManager;
 import jakarta.validation.ConstraintViolation;
@@ -84,6 +86,9 @@ class ProductServiceImplTest {
     private BrandService brandService;
 
     @Mock
+    private ReviewService reviewService;
+
+    @Mock
     private EntityManager entityManager;
 
     private ProductServiceImpl service;
@@ -104,7 +109,7 @@ class ProductServiceImplTest {
 
     private void init() {
         service = new ProductServiceImpl(productRepository, productImageRepository, productImageMapper,
-                productVariantService, categoryService, brandService, entityManager);
+                productVariantService, categoryService, brandService, reviewService, entityManager);
     }
 
     private Product product(Long id) {
@@ -152,6 +157,7 @@ class ProductServiceImplTest {
                 .thenReturn(List.of(primary));
         when(productVariantService.getPurchasableStateByProductIds(List.of(1L)))
                 .thenReturn(Map.of(1L, true));
+        when(reviewService.getRatingSummaries(List.of(1L))).thenReturn(Map.of());
 
         PageResponse<ProductSummaryResponse> result = service.searchProducts("air", 5L, 3L, pageable);
 
@@ -184,6 +190,7 @@ class ProductServiceImplTest {
                 .thenReturn(new PageImpl<>(List.of(product), pageable, 1));
         when(productImageRepository.findPrimaryByProductIdIn(List.of(1L))).thenReturn(List.of());
         when(productVariantService.getPurchasableStateByProductIds(List.of(1L))).thenReturn(Map.of());
+        when(reviewService.getRatingSummaries(List.of(1L))).thenReturn(Map.of());
 
         PageResponse<ProductSummaryResponse> result = service.searchProducts(null, null, null, pageable);
 
@@ -243,6 +250,7 @@ class ProductServiceImplTest {
         when(productRepository.findByIdInAndDeletedAtIsNull(ids)).thenReturn(List.of(first, second));
         when(productImageRepository.findPrimaryByProductIdIn(ids)).thenReturn(List.of(primary));
         when(productVariantService.getPurchasableStateByProductIds(ids)).thenReturn(Map.of(1L, true, 2L, false));
+        when(reviewService.getRatingSummaries(ids)).thenReturn(Map.of());
 
         Map<Long, ProductSummaryResponse> result = service.getSummariesByIds(ids);
 
@@ -274,6 +282,7 @@ class ProductServiceImplTest {
         when(productRepository.findByIdInAndDeletedAtIsNull(List.of(1L, 2L, 9L))).thenReturn(List.of(product));
         when(productImageRepository.findPrimaryByProductIdIn(List.of(1L))).thenReturn(List.of());
         when(productVariantService.getPurchasableStateByProductIds(List.of(1L))).thenReturn(Map.of());
+        when(reviewService.getRatingSummaries(List.of(1L))).thenReturn(Map.of());
 
         Map<Long, ProductSummaryResponse> result = service.getSummariesByIds(List.of(1L, 2L, 9L));
 
@@ -309,7 +318,7 @@ class ProductServiceImplTest {
     /**
      * Product detail assembles every field: own fields, brand/category associations, images in the
      * repository-provided order, variants from the variant service, derived availability, the
-     * creation timestamp, and the rating/review placeholders.
+     * creation timestamp, and the live rating aggregate (empty here, so {@code 0.00} / {@code 0}).
      */
     @Test
     void getProductDetailAssemblesAllFields() {
@@ -330,6 +339,7 @@ class ProductServiceImplTest {
         when(productImageMapper.toResponse(second)).thenReturn(secondResp);
         when(productVariantService.getVariantsByProduct(1L)).thenReturn(List.of(variant));
         when(productVariantService.hasPurchasableVariant(1L)).thenReturn(true);
+        when(reviewService.getRatingSummary(1L)).thenReturn(RatingSummary.empty());
 
         ProductDetailResponse result = service.getProductDetail(1L);
 
@@ -360,6 +370,7 @@ class ProductServiceImplTest {
         when(productImageRepository.findByProductIdOrderByDisplayOrderAsc(1L)).thenReturn(List.of());
         when(productVariantService.getVariantsByProduct(1L)).thenReturn(List.of());
         when(productVariantService.hasPurchasableVariant(1L)).thenReturn(false);
+        when(reviewService.getRatingSummary(1L)).thenReturn(RatingSummary.empty());
 
         ProductDetailResponse result = service.getProductDetail(1L);
 
@@ -422,6 +433,7 @@ class ProductServiceImplTest {
         when(productImageRepository.findByProductIdOrderByDisplayOrderAsc(1L)).thenReturn(List.of());
         when(productVariantService.getVariantsByProduct(1L)).thenReturn(List.of());
         when(productVariantService.hasPurchasableVariant(1L)).thenReturn(false);
+        when(reviewService.getRatingSummary(1L)).thenReturn(RatingSummary.empty());
 
         ProductDetailResponse result = service.createProduct(request);
 
@@ -556,6 +568,7 @@ class ProductServiceImplTest {
         when(productImageRepository.findByProductIdOrderByDisplayOrderAsc(1L)).thenReturn(List.of());
         when(productVariantService.getVariantsByProduct(1L)).thenReturn(List.of());
         when(productVariantService.hasPurchasableVariant(1L)).thenReturn(false);
+        when(reviewService.getRatingSummary(1L)).thenReturn(RatingSummary.empty());
 
         ProductDetailResponse result = service.updateProduct(1L, request);
 
@@ -598,6 +611,7 @@ class ProductServiceImplTest {
         when(productImageRepository.findByProductIdOrderByDisplayOrderAsc(1L)).thenReturn(List.of());
         when(productVariantService.getVariantsByProduct(1L)).thenReturn(List.of());
         when(productVariantService.hasPurchasableVariant(1L)).thenReturn(false);
+        when(reviewService.getRatingSummary(1L)).thenReturn(RatingSummary.empty());
 
         ProductDetailResponse result = service.updateProduct(1L, request);
 

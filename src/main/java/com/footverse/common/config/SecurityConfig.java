@@ -26,8 +26,9 @@ import lombok.RequiredArgsConstructor;
  * <p>The {@link JwtFilter} authenticates Bearer access tokens and populates the caller's role
  * authority. Public catalog reads stay open; the admin catalog writes and admin coupon management
  * (plus the admin order status transition) require {@code ROLE_ADMIN}; the customer-owned shopping
- * resources (address, cart, wishlist), the checkout preview, and the order endpoints require
- * {@code ROLE_CUSTOMER}; every other endpoint requires authentication. A denied authorization is
+ * resources (address, cart, wishlist), the checkout preview, the order endpoints, and the review
+ * write paths require {@code ROLE_CUSTOMER}; every other endpoint requires authentication. A denied
+ * authorization is
  * rendered as the enveloped {@code 403} by the {@link RestAccessDeniedHandler}.</p>
  */
 @Configuration
@@ -96,6 +97,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/coupons/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/coupons/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/orders/**").hasRole("CUSTOMER")
+                        // Review write paths (security-spec §6): POST /reviews, PUT /reviews/{id},
+                        // DELETE /reviews/{id} are CUSTOMER-only. The public listing
+                        // GET /products/{id}/reviews is already open via the GET /api/v1/products/**
+                        // permitAll rule above, so no matcher for it is added here. This pattern does
+                        // not overlap any other rule; ownership and DELIVERED-order eligibility are
+                        // enforced per-service via CurrentUserProvider (security-spec §7).
+                        .requestMatchers("/api/v1/reviews/**").hasRole("CUSTOMER")
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions

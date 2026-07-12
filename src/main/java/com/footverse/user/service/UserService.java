@@ -2,6 +2,7 @@ package com.footverse.user.service;
 
 import java.util.Optional;
 
+import com.footverse.user.dto.UpdateProfileRequest;
 import com.footverse.user.dto.UserResponse;
 import com.footverse.user.entity.User;
 
@@ -18,6 +19,21 @@ public interface UserService {
      * @return the current user's {@link UserResponse}
      */
     UserResponse getCurrentUser();
+
+    /**
+     * Updates the authenticated caller's own editable profile fields — {@code fullName},
+     * {@code phone}, and {@code avatarUrl} (dto-spec §5; security-spec §6 — self only). The caller
+     * is resolved through {@code CurrentUserProvider}, never a request field, so no user id is ever
+     * accepted. Email, password, role, and the enabled flag are untouchable through this operation.
+     * A phone already held by <strong>another</strong> account is rejected; keeping one's own phone
+     * is not a conflict (the coupon-update precedent).
+     *
+     * @param request the validated profile update (full name, phone, optional avatar URL)
+     * @return the caller's refreshed profile
+     * @throws com.footverse.common.exception.DuplicateResourceException {@code 409
+     *         USER_PHONE_DUPLICATED} when the phone belongs to another account
+     */
+    UserResponse updateProfile(UpdateProfileRequest request);
 
     /**
      * Checks whether an account with the given email already exists.
