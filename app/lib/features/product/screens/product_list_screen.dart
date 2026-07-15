@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/router/app_routes.dart';
+import '../../cart/widgets/cart_badge.dart';
 import '../providers/product_list_provider.dart';
 import '../repositories/brand_repository.dart';
 import '../repositories/category_repository.dart';
@@ -100,6 +101,7 @@ class _ProductListViewState extends State<_ProductListView> {
       appBar: AppBar(
         title: const Text('FootVerse'),
         actions: <Widget>[
+          const CartBadge(),
           IconButton(
             icon: const Icon(Icons.person_outline),
             tooltip: 'Account',

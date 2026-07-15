@@ -7,10 +7,15 @@ import 'core/network/dio_client.dart';
 import 'core/router/app_router.dart';
 import 'core/storage/token_storage.dart';
 import 'features/auth/providers/auth_provider.dart';
+import 'features/address/repositories/address_repository.dart';
 import 'features/auth/repositories/auth_repository.dart';
+import 'features/cart/providers/cart_provider.dart';
+import 'features/cart/repositories/cart_repository.dart';
 import 'features/product/repositories/brand_repository.dart';
 import 'features/product/repositories/category_repository.dart';
 import 'features/product/repositories/product_repository.dart';
+import 'features/wishlist/providers/wishlist_provider.dart';
+import 'features/wishlist/repositories/wishlist_repository.dart';
 
 /// Composition root: builds the dependency graph, wires the auth interceptor
 /// into the main [Dio], restores any persisted session, then starts the app.
@@ -25,6 +30,8 @@ Future<void> main() async {
   final refreshDio = createDio();
 
   final authProvider = AuthProvider(AuthRepository(dio), tokenStorage);
+  final cartProvider = CartProvider(CartRepository(dio));
+  final wishlistProvider = WishlistProvider(WishlistRepository(dio));
 
   // Insert before the error interceptor so the auth interceptor sees the raw
   // 401 first (attaches the bearer, runs the single refresh-and-retry).
@@ -38,16 +45,34 @@ Future<void> main() async {
     ),
   );
 
+  // Composition-root bridge (feature-boundary safe — neither feature imports the
+  // other): the cart and wishlist mirror the auth session — loaded when
+  // authenticated (sign-in or restore), reset on sign-out so no user-scoped state
+  // leaks across accounts (sprint-7-plan items 06 / 08). Registered before
+  // restoreSession so the initial authenticated state triggers the first load.
+  authProvider.addListener(() {
+    if (authProvider.isAuthenticated) {
+      cartProvider.load();
+      wishlistProvider.load();
+    } else {
+      cartProvider.reset();
+      wishlistProvider.reset();
+    }
+  });
+
   authProvider.restoreSession();
 
   runApp(
     FootVerseApp(
       authProvider: authProvider,
+      cartProvider: cartProvider,
+      wishlistProvider: wishlistProvider,
       router: createAppRouter(
         authProvider,
         ProductRepository(dio),
         CategoryRepository(dio),
         BrandRepository(dio),
+        AddressRepository(dio),
       ),
     ),
   );

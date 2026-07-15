@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../cart/widgets/add_to_cart_button.dart';
+import '../../wishlist/widgets/wishlist_toggle.dart';
 import '../models/product_detail_response.dart';
 import '../models/product_image_response.dart';
+import '../models/product_variant_response.dart';
+import '../models/product_variant_status.dart';
 import '../providers/product_detail_provider.dart';
 import '../repositories/product_repository.dart';
 import '../widgets/next_page_footer.dart';
@@ -51,10 +55,18 @@ class _ProductDetailViewState extends State<_ProductDetailView> {
 
   static const double _loadMoreThreshold = 200;
 
+  // Variant selection is screen-local UI state — it is not provider state and no
+  // ProductDetailProvider is created for it (sprint-7-plan item 07).
+  int? _selectedVariantId;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+  }
+
+  void _selectVariant(int variantId) {
+    setState(() => _selectedVariantId = variantId);
   }
 
   @override
@@ -90,8 +102,14 @@ class _ProductDetailViewState extends State<_ProductDetailView> {
         (_) => _autoLoadIfNotScrollable(),
       );
     }
+    final detail = provider.detail;
     return Scaffold(
-      appBar: AppBar(title: Text(provider.detail?.name ?? 'Product')),
+      appBar: AppBar(
+        title: Text(detail?.name ?? 'Product'),
+        actions: detail == null
+            ? null
+            : <Widget>[WishlistToggle(productId: detail.id)],
+      ),
       body: SafeArea(child: _buildBody(context, provider)),
     );
   }
@@ -118,6 +136,8 @@ class _ProductDetailViewState extends State<_ProductDetailView> {
               child: _DetailBody(
                 detail: provider.detail!,
                 images: provider.images,
+                selectedVariantId: _selectedVariantId,
+                onSelectVariant: _selectVariant,
               ),
             ),
             ..._reviewSlivers(context, provider),
@@ -184,18 +204,47 @@ class _ProductDetailViewState extends State<_ProductDetailView> {
   }
 }
 
-/// The product's own information plus its read-only variants and the reviews
-/// header — everything above the review list.
+/// The product's own information plus its selectable variants, the composed
+/// add-to-cart affordance, and the reviews header — everything above the review
+/// list. Everything except the add-to-cart action stays read-only.
 class _DetailBody extends StatelessWidget {
-  const _DetailBody({required this.detail, required this.images});
+  const _DetailBody({
+    required this.detail,
+    required this.images,
+    required this.selectedVariantId,
+    required this.onSelectVariant,
+  });
 
   final ProductDetailResponse detail;
   final List<ProductImageResponse> images;
+  final int? selectedVariantId;
+  final ValueChanged<int> onSelectVariant;
+
+  /// The selected variant, or null when none is selected.
+  ProductVariantResponse? get _selectedVariant {
+    final id = selectedVariantId;
+    if (id == null) {
+      return null;
+    }
+    for (final variant in detail.variants) {
+      if (variant.id == id) {
+        return variant;
+      }
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final description = detail.description;
+    final variant = _selectedVariant;
+    // Client-side pre-check mirroring the frozen purchase rule for UX; the server
+    // stays authoritative (business-rules → Shopping Cart).
+    final purchasable =
+        variant != null &&
+        variant.status == ProductVariantStatus.active &&
+        variant.stockQuantity > 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -239,7 +288,19 @@ class _DetailBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        ProductVariantList(variants: detail.variants),
+        ProductVariantList(
+          variants: detail.variants,
+          selectedVariantId: selectedVariantId,
+          onSelect: onSelectVariant,
+        ),
+        if (detail.variants.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: AddToCartButton(
+              productVariantId: variant?.id,
+              purchasable: purchasable,
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Text('Reviews', style: theme.textTheme.titleMedium),

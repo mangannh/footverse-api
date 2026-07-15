@@ -4,9 +4,12 @@ import 'package:footverse/features/product/models/product_detail_response.dart';
 import 'package:footverse/features/product/models/review_response.dart';
 import 'package:footverse/features/product/repositories/product_repository.dart';
 import 'package:footverse/features/product/screens/product_detail_screen.dart';
+import 'package:footverse/features/wishlist/providers/wishlist_provider.dart';
+import 'package:footverse/features/wishlist/repositories/wishlist_repository.dart';
 import 'package:footverse/shared/models/page_response.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
+import 'package:provider/provider.dart';
 
 import 'product_detail_screen_test.mocks.dart';
 
@@ -60,7 +63,10 @@ void _stubReviews(
   ).thenAnswer((_) async => result);
 }
 
-@GenerateNiceMocks([MockSpec<ProductRepository>()])
+@GenerateNiceMocks([
+  MockSpec<ProductRepository>(),
+  MockSpec<WishlistRepository>(),
+])
 void main() {
   testWidgets(
     'auto-loads the next review page when the first page cannot scroll',
@@ -75,11 +81,17 @@ void main() {
       _stubReviews(repository, 0, _reviewPage([1], last: false));
       _stubReviews(repository, 1, _reviewPage([2], last: true));
 
+      // The detail app bar embeds the wishlist-owned toggle, which reads the
+      // application-scoped WishlistProvider; supply it (never loaded) so the
+      // toggle renders inert (sprint-7-plan item 08).
       await tester.pumpWidget(
         MaterialApp(
-          home: ProductDetailScreen(
-            productId: 1,
-            productRepository: repository,
+          home: ChangeNotifierProvider<WishlistProvider>(
+            create: (_) => WishlistProvider(MockWishlistRepository()),
+            child: ProductDetailScreen(
+              productId: 1,
+              productRepository: repository,
+            ),
           ),
         ),
       );

@@ -3,22 +3,29 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i5;
+import 'dart:async' as _i6;
 
-import 'package:footverse/features/product/models/brand_response.dart' as _i11;
+import 'package:footverse/features/cart/models/add_cart_item_request.dart'
+    as _i14;
+import 'package:footverse/features/cart/models/cart_response.dart' as _i4;
+import 'package:footverse/features/cart/models/update_cart_item_request.dart'
+    as _i15;
+import 'package:footverse/features/cart/repositories/cart_repository.dart'
+    as _i13;
+import 'package:footverse/features/product/models/brand_response.dart' as _i12;
 import 'package:footverse/features/product/models/category_response.dart'
-    as _i9;
+    as _i10;
 import 'package:footverse/features/product/models/product_detail_response.dart'
     as _i3;
 import 'package:footverse/features/product/models/product_summary_response.dart'
-    as _i6;
-import 'package:footverse/features/product/models/review_response.dart' as _i7;
+    as _i7;
+import 'package:footverse/features/product/models/review_response.dart' as _i8;
 import 'package:footverse/features/product/repositories/brand_repository.dart'
-    as _i10;
+    as _i11;
 import 'package:footverse/features/product/repositories/category_repository.dart'
-    as _i8;
+    as _i9;
 import 'package:footverse/features/product/repositories/product_repository.dart'
-    as _i4;
+    as _i5;
 import 'package:footverse/shared/models/page_response.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
 
@@ -49,18 +56,23 @@ class _FakeProductDetailResponse_1 extends _i1.SmartFake
     : super(parent, parentInvocation);
 }
 
+class _FakeCartResponse_2 extends _i1.SmartFake implements _i4.CartResponse {
+  _FakeCartResponse_2(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
 /// A class which mocks [ProductRepository].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
+class MockProductRepository extends _i1.Mock implements _i5.ProductRepository {
   @override
-  _i5.Future<_i2.PageResponse<_i6.ProductSummaryResponse>> searchProducts({
+  _i6.Future<_i2.PageResponse<_i7.ProductSummaryResponse>> searchProducts({
     String? name,
     int? brandId,
     int? categoryId,
     int? page = 0,
     int? size = 20,
-    _i4.ProductSort? sort,
+    _i5.ProductSort? sort,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#searchProducts, [], {
@@ -72,8 +84,8 @@ class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
               #sort: sort,
             }),
             returnValue:
-                _i5.Future<_i2.PageResponse<_i6.ProductSummaryResponse>>.value(
-                  _FakePageResponse_0<_i6.ProductSummaryResponse>(
+                _i6.Future<_i2.PageResponse<_i7.ProductSummaryResponse>>.value(
+                  _FakePageResponse_0<_i7.ProductSummaryResponse>(
                     this,
                     Invocation.method(#searchProducts, [], {
                       #name: name,
@@ -86,8 +98,8 @@ class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
                   ),
                 ),
             returnValueForMissingStub:
-                _i5.Future<_i2.PageResponse<_i6.ProductSummaryResponse>>.value(
-                  _FakePageResponse_0<_i6.ProductSummaryResponse>(
+                _i6.Future<_i2.PageResponse<_i7.ProductSummaryResponse>>.value(
+                  _FakePageResponse_0<_i7.ProductSummaryResponse>(
                     this,
                     Invocation.method(#searchProducts, [], {
                       #name: name,
@@ -100,30 +112,30 @@ class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
                   ),
                 ),
           )
-          as _i5.Future<_i2.PageResponse<_i6.ProductSummaryResponse>>);
+          as _i6.Future<_i2.PageResponse<_i7.ProductSummaryResponse>>);
 
   @override
-  _i5.Future<_i3.ProductDetailResponse> getProduct(int? id) =>
+  _i6.Future<_i3.ProductDetailResponse> getProduct(int? id) =>
       (super.noSuchMethod(
             Invocation.method(#getProduct, [id]),
-            returnValue: _i5.Future<_i3.ProductDetailResponse>.value(
+            returnValue: _i6.Future<_i3.ProductDetailResponse>.value(
               _FakeProductDetailResponse_1(
                 this,
                 Invocation.method(#getProduct, [id]),
               ),
             ),
             returnValueForMissingStub:
-                _i5.Future<_i3.ProductDetailResponse>.value(
+                _i6.Future<_i3.ProductDetailResponse>.value(
                   _FakeProductDetailResponse_1(
                     this,
                     Invocation.method(#getProduct, [id]),
                   ),
                 ),
           )
-          as _i5.Future<_i3.ProductDetailResponse>);
+          as _i6.Future<_i3.ProductDetailResponse>);
 
   @override
-  _i5.Future<_i2.PageResponse<_i7.ReviewResponse>> getProductReviews(
+  _i6.Future<_i2.PageResponse<_i8.ReviewResponse>> getProductReviews(
     int? id, {
     int? page = 0,
     int? size = 20,
@@ -134,8 +146,8 @@ class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
               [id],
               {#page: page, #size: size},
             ),
-            returnValue: _i5.Future<_i2.PageResponse<_i7.ReviewResponse>>.value(
-              _FakePageResponse_0<_i7.ReviewResponse>(
+            returnValue: _i6.Future<_i2.PageResponse<_i8.ReviewResponse>>.value(
+              _FakePageResponse_0<_i8.ReviewResponse>(
                 this,
                 Invocation.method(
                   #getProductReviews,
@@ -145,8 +157,8 @@ class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
               ),
             ),
             returnValueForMissingStub:
-                _i5.Future<_i2.PageResponse<_i7.ReviewResponse>>.value(
-                  _FakePageResponse_0<_i7.ReviewResponse>(
+                _i6.Future<_i2.PageResponse<_i8.ReviewResponse>>.value(
+                  _FakePageResponse_0<_i8.ReviewResponse>(
                     this,
                     Invocation.method(
                       #getProductReviews,
@@ -156,44 +168,116 @@ class MockProductRepository extends _i1.Mock implements _i4.ProductRepository {
                   ),
                 ),
           )
-          as _i5.Future<_i2.PageResponse<_i7.ReviewResponse>>);
+          as _i6.Future<_i2.PageResponse<_i8.ReviewResponse>>);
 }
 
 /// A class which mocks [CategoryRepository].
 ///
 /// See the documentation for Mockito's code generation for more information.
 class MockCategoryRepository extends _i1.Mock
-    implements _i8.CategoryRepository {
+    implements _i9.CategoryRepository {
   @override
-  _i5.Future<List<_i9.CategoryResponse>> getCategories() =>
+  _i6.Future<List<_i10.CategoryResponse>> getCategories() =>
       (super.noSuchMethod(
             Invocation.method(#getCategories, []),
-            returnValue: _i5.Future<List<_i9.CategoryResponse>>.value(
-              <_i9.CategoryResponse>[],
+            returnValue: _i6.Future<List<_i10.CategoryResponse>>.value(
+              <_i10.CategoryResponse>[],
             ),
             returnValueForMissingStub:
-                _i5.Future<List<_i9.CategoryResponse>>.value(
-                  <_i9.CategoryResponse>[],
+                _i6.Future<List<_i10.CategoryResponse>>.value(
+                  <_i10.CategoryResponse>[],
                 ),
           )
-          as _i5.Future<List<_i9.CategoryResponse>>);
+          as _i6.Future<List<_i10.CategoryResponse>>);
 }
 
 /// A class which mocks [BrandRepository].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockBrandRepository extends _i1.Mock implements _i10.BrandRepository {
+class MockBrandRepository extends _i1.Mock implements _i11.BrandRepository {
   @override
-  _i5.Future<List<_i11.BrandResponse>> getBrands() =>
+  _i6.Future<List<_i12.BrandResponse>> getBrands() =>
       (super.noSuchMethod(
             Invocation.method(#getBrands, []),
-            returnValue: _i5.Future<List<_i11.BrandResponse>>.value(
-              <_i11.BrandResponse>[],
+            returnValue: _i6.Future<List<_i12.BrandResponse>>.value(
+              <_i12.BrandResponse>[],
             ),
             returnValueForMissingStub:
-                _i5.Future<List<_i11.BrandResponse>>.value(
-                  <_i11.BrandResponse>[],
+                _i6.Future<List<_i12.BrandResponse>>.value(
+                  <_i12.BrandResponse>[],
                 ),
           )
-          as _i5.Future<List<_i11.BrandResponse>>);
+          as _i6.Future<List<_i12.BrandResponse>>);
+}
+
+/// A class which mocks [CartRepository].
+///
+/// See the documentation for Mockito's code generation for more information.
+class MockCartRepository extends _i1.Mock implements _i13.CartRepository {
+  @override
+  _i6.Future<_i4.CartResponse> getCart() =>
+      (super.noSuchMethod(
+            Invocation.method(#getCart, []),
+            returnValue: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(this, Invocation.method(#getCart, [])),
+            ),
+            returnValueForMissingStub: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(this, Invocation.method(#getCart, [])),
+            ),
+          )
+          as _i6.Future<_i4.CartResponse>);
+
+  @override
+  _i6.Future<_i4.CartResponse> addItem(_i14.AddCartItemRequest? request) =>
+      (super.noSuchMethod(
+            Invocation.method(#addItem, [request]),
+            returnValue: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(this, Invocation.method(#addItem, [request])),
+            ),
+            returnValueForMissingStub: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(this, Invocation.method(#addItem, [request])),
+            ),
+          )
+          as _i6.Future<_i4.CartResponse>);
+
+  @override
+  _i6.Future<_i4.CartResponse> updateItem(
+    int? cartItemId,
+    _i15.UpdateCartItemRequest? request,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateItem, [cartItemId, request]),
+            returnValue: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(
+                this,
+                Invocation.method(#updateItem, [cartItemId, request]),
+              ),
+            ),
+            returnValueForMissingStub: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(
+                this,
+                Invocation.method(#updateItem, [cartItemId, request]),
+              ),
+            ),
+          )
+          as _i6.Future<_i4.CartResponse>);
+
+  @override
+  _i6.Future<_i4.CartResponse> removeItem(int? cartItemId) =>
+      (super.noSuchMethod(
+            Invocation.method(#removeItem, [cartItemId]),
+            returnValue: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(
+                this,
+                Invocation.method(#removeItem, [cartItemId]),
+              ),
+            ),
+            returnValueForMissingStub: _i6.Future<_i4.CartResponse>.value(
+              _FakeCartResponse_2(
+                this,
+                Invocation.method(#removeItem, [cartItemId]),
+              ),
+            ),
+          )
+          as _i6.Future<_i4.CartResponse>);
 }

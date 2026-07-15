@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:footverse/features/cart/providers/cart_provider.dart';
+import 'package:footverse/features/cart/repositories/cart_repository.dart';
 import 'package:footverse/features/product/models/brand_response.dart';
 import 'package:footverse/features/product/models/category_response.dart';
 import 'package:footverse/features/product/models/product_summary_response.dart';
@@ -10,6 +12,7 @@ import 'package:footverse/features/product/screens/product_list_screen.dart';
 import 'package:footverse/shared/models/page_response.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
+import 'package:provider/provider.dart';
 
 import 'product_list_screen_test.mocks.dart';
 
@@ -58,16 +61,19 @@ void _stubPage(
   MockSpec<ProductRepository>(),
   MockSpec<CategoryRepository>(),
   MockSpec<BrandRepository>(),
+  MockSpec<CartRepository>(),
 ])
 void main() {
   late MockProductRepository productRepository;
   late MockCategoryRepository categoryRepository;
   late MockBrandRepository brandRepository;
+  late MockCartRepository cartRepository;
 
   setUp(() {
     productRepository = MockProductRepository();
     categoryRepository = MockCategoryRepository();
     brandRepository = MockBrandRepository();
+    cartRepository = MockCartRepository();
     when(
       categoryRepository.getCategories(),
     ).thenAnswer((_) async => <CategoryResponse>[]);
@@ -86,10 +92,13 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: ProductListScreen(
-            productRepository: productRepository,
-            categoryRepository: categoryRepository,
-            brandRepository: brandRepository,
+          home: ChangeNotifierProvider<CartProvider>(
+            create: (_) => CartProvider(cartRepository),
+            child: ProductListScreen(
+              productRepository: productRepository,
+              categoryRepository: categoryRepository,
+              brandRepository: brandRepository,
+            ),
           ),
         ),
       );

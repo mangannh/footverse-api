@@ -12,4 +12,8 @@ class AppRoute {
   static const String login = 'login';
   static const String register = 'register';
   static const String account = 'account';
+  static const String addresses = 'addresses';
+  static const String addressForm = 'addressForm';
+  static const String cart = 'cart';
+  static const String wishlist = 'wishlist';
 }
